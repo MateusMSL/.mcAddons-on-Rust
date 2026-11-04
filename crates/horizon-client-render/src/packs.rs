@@ -3,6 +3,7 @@
 //! and High Contrast packs, `pack.mcmeta` metadata and format compatibility,
 //! and an overlay resource root that layers the enabled packs over the
 //! vanilla resources (later packs win), so every loader sees one tree.
+pub mod bedrock;
 mod cache;
 use crate::text::Style;
 use crate::{text::Text, zip::Zip};
@@ -517,17 +518,43 @@ pub fn folder(dir: &Path, format: (i64, i64)) -> Vec<Pack> {
             let path = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
             let source = if path.is_dir() {
-                Source::Dir(path)
+                Source::Dir(path.clone())
             } else if name.ends_with(".zip") {
-                Source::Zip(path)
+                Source::Zip(path.clone())
+            } else if bedrock::is_bedrock_file(&name) {
+                // `.mcpack` and `.mcaddon` are Bedrock's: converted below.
+                return bedrock_pack(dir, &path, name, format);
             } else {
                 return None;
             };
-            pack_for(format!("file/{name}"), Text::literal(name), source, format)
+            pack_for(
+                format!("file/{name}"),
+                Text::literal(name.clone()),
+                source,
+                format,
+            )
+            .or_else(|| bedrock_pack(dir, &path, name, format))
         })
         .collect();
     user.sort_by(|a, b| a.id.cmp(&b.id));
     user
+}
+/// A Bedrock resource pack (a folder or zip with a `manifest.json` and no `pack.mcmeta`, a
+/// `.mcpack` or a `.mcaddon`) as the Java pack [`bedrock::convert`] makes of it, kept in
+/// `.horizon-cache/bedrock/` beside `dir` and made again only when the file changes.
+fn bedrock_pack(dir: &Path, path: &Path, name: String, format: (i64, i64)) -> Option<Pack> {
+    let cache = dir
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(".horizon-cache/bedrock");
+    let subpack = bedrock::chosen_subpack(dir, &name);
+    let converted = bedrock::convert(path, &cache, format, subpack.as_deref())?;
+    pack_for(
+        format!("file/{name}"),
+        Text::literal(name),
+        Source::Dir(converted),
+        format,
+    )
 }
 /// A file a pack provides: its path (folder packs) and its name inside the pack.
 type Provided = (Option<PathBuf>, String);

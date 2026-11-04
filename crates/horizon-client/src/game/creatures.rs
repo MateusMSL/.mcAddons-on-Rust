@@ -6911,7 +6911,16 @@ impl Game<'_> {
                 );
             }
             // Other players on a server: PlayerRenderer's HumanoidArmorLayer.
-            let armor = if is_player {
+            // The pack that dresses a player draws the armour itself.
+            let pack_dresses = is_player
+                && self
+                    .res
+                    .mob_data()
+                    .bedrock
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .has_entity(&mob.kind.id);
+            let armor = if is_player && !pack_dresses {
                 self.worn_armor_layers(mob)
             } else {
                 Vec::new()

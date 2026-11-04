@@ -46,6 +46,55 @@ pub const FULL_BRIGHT: u32 = 240 | 240 << 8;
 /// HDR output, as `mesher::hdr_tier`.
 const EYES_TIER: u8 = crate::mesher::BRIGHT;
 
+/// The distinct material flags among a layer's bones, in order: one group per look.
+fn material_groups(
+    layer: &horizon_bedrock::entity::Layer,
+    names: &[String],
+    materials: &horizon_bedrock::material::Materials,
+) -> Vec<horizon_bedrock::material::MaterialFlags> {
+    let mut groups = vec![materials.flags(&layer.material)];
+    if layer.bone_materials.is_empty() {
+        return groups;
+    }
+    groups.clear();
+    for f in names.iter().map(|n| materials.flags(layer.material_for(n))) {
+        if !groups.contains(&f) {
+            groups.push(f);
+        }
+    }
+    if groups.is_empty() {
+        groups.push(materials.flags(&layer.material));
+    }
+    groups
+}
+
+/// `filter_lighting`: every face lit as one facing up, so the shading does not follow the
+/// direction the face points.
+fn flatten_lighting(quads: &mut [Vertex]) {
+    for v in quads {
+        v.normal = [0, 127, 0, 0];
+    }
+}
+
+/// `uv_anim`: moves and scales the coordinates inside the texture's rectangle of the atlas,
+/// wrapping at its edges.
+fn animate_uv(quads: &mut [Vertex], rect: [f32; 4], anim: Option<([f32; 2], [f32; 2])>) {
+    let Some((offset, scale)) = anim else {
+        return;
+    };
+    let size = [rect[2] - rect[0], rect[3] - rect[1]];
+    if size[0] <= 0.0 || size[1] <= 0.0 {
+        return;
+    }
+    for v in quads {
+        for i in 0..2 {
+            let local = (v.uv[i] - rect[i]) / size[i];
+            let moved = local * scale[i] + offset[i];
+            v.uv[i] = rect[i] + moved.rem_euclid(1.0) * size[i];
+        }
+    }
+}
+
 /// Tags quads as drawn by a render type vanilla gives an `OitPipelineSet`
 /// (`gfx::OIT_ENTITY`): improved transparency draws them in its stages.
 fn mark_oit(quads: &mut [Vertex]) {
@@ -1412,6 +1461,27 @@ fn draw_normals(
         return;
     }
     let normals = normals.part(p);
+    draw_polygons(
+        part, m, normals, uv, scroll, color, light, overlay, poses, out,
+    );
+    for c in &part.children {
+        draw_normals(c, m, normals, poses, uv, scroll, color, light, overlay, out);
+    }
+}
+/// The polygons of `part` alone, under its own matrix `m`.
+#[allow(clippy::too_many_arguments)]
+fn draw_polygons(
+    part: &Part,
+    m: glam::Mat4,
+    normals: ModelNormals,
+    uv: [f32; 4],
+    scroll: f32,
+    color: u32,
+    light: u32,
+    overlay: u32,
+    poses: &Poses,
+    out: &mut Vec<Vertex>,
+) {
     // `skips` is a name lookup: ask once per part, not once per polygon. A part
     // hidden this way still draws its children, so only the polygons are gated.
     if !poses.skips(part) {
@@ -1441,8 +1511,113 @@ fn draw_normals(
             }
         }
     }
+}
+/// Every part's posed matrix and rest matrix under `part`, by name, both from the model's
+/// origin: what an attachable bound to the part needs (`posed * rest⁻¹` moves the part's own
+/// cubes from where they were modelled to where the animation put them).
+pub fn bone_matrices(
+    part: &Part,
+    poses: &Poses,
+    out: &mut std::collections::HashMap<String, (glam::Mat4, glam::Mat4)>,
+) {
+    fn walk(
+        part: &Part,
+        posed_parent: glam::Mat4,
+        rest_parent: glam::Mat4,
+        poses: &Poses,
+        out: &mut std::collections::HashMap<String, (glam::Mat4, glam::Mat4)>,
+    ) {
+        let now = posed(posed_parent, poses.pose(part));
+        let rest = posed(rest_parent, part.pose);
+        out.insert(part.name.clone(), (now, rest));
+        for c in &part.children {
+            walk(c, now, rest, poses, out);
+        }
+    }
+    walk(part, glam::Mat4::IDENTITY, glam::Mat4::IDENTITY, poses, out);
+}
+/// An attachable's parts: a bone with a binding is drawn where the holder's bone it follows
+/// went (`base_of` gives that bone's matrix), the others where the attachable's own pose puts
+/// them (or not at all when the model binds some of its bones). `chain` is the matrix of the
+/// parent from the model's origin.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_attached(
+    part: &Part,
+    chain: glam::Mat4,
+    base: glam::Mat4,
+    bound_only: bool,
+    base_of: &dyn Fn(&str) -> Option<glam::Mat4>,
+    poses: &Poses,
+    uv: [f32; 4],
+    color: u32,
+    light: u32,
+    overlay: u32,
+    out: &mut Vec<Vertex>,
+) {
+    draw_attached_under(
+        part, chain, base, bound_only, None, base_of, poses, uv, color, light, overlay, out,
+    );
+}
+
+/// `draw_attached`, where `inherited` is the holder matrix of the nearest bound bone above: a
+/// bone with no binding of its own moves with its parent.
+#[allow(clippy::too_many_arguments)]
+fn draw_attached_under(
+    part: &Part,
+    chain: glam::Mat4,
+    base: glam::Mat4,
+    bound_only: bool,
+    inherited: Option<glam::Mat4>,
+    base_of: &dyn Fn(&str) -> Option<glam::Mat4>,
+    poses: &Poses,
+    uv: [f32; 4],
+    color: u32,
+    light: u32,
+    overlay: u32,
+    out: &mut Vec<Vertex>,
+) {
+    let p = poses.pose(part);
+    if poses.is_hidden(part) || p[6] == 0.0 && p[7] == 0.0 && p[8] == 0.0 {
+        return;
+    }
+    let mine = posed(chain, p);
+    let bound = base_of(&part.name);
+    let under = match bound.or(inherited) {
+        Some(bound) => bound,
+        None if bound_only => glam::Mat4::ZERO,
+        None => base,
+    };
+    let m = under * mine;
+    let skip = under == glam::Mat4::ZERO || poses.skips(part);
+    if !skip {
+        draw_polygons(
+            part,
+            m,
+            ModelNormals::new(m),
+            uv,
+            0.0,
+            color,
+            light,
+            overlay,
+            poses,
+            out,
+        );
+    }
     for c in &part.children {
-        draw_normals(c, m, normals, poses, uv, scroll, color, light, overlay, out);
+        draw_attached_under(
+            c,
+            mine,
+            base,
+            bound_only,
+            bound.or(inherited),
+            base_of,
+            poses,
+            uv,
+            color,
+            light,
+            overlay,
+            out,
+        );
     }
 }
 /// A part's matrix under `base` for its pose (`ModelPart.translateAndRotate`
@@ -1946,6 +2121,467 @@ fn posed_body(
     let anchors = custom.map_or(Vec::new(), |c| c.anchors.clone());
     (model, poses, anchors)
 }
+/// `color` (ABGR) times a layer's RGBA.
+fn tint(color: u32, rgba: [f32; 4]) -> u32 {
+    let ch =
+        |shift: u32, f: f32| ((((color >> shift) & 255) as f32) * f.clamp(0.0, 1.0)).round() as u32;
+    ch(24, rgba[3]) << 24 | ch(16, rgba[2]) << 16 | ch(8, rgba[1]) << 8 | ch(0, rgba[0])
+}
+/// The mob drawn the way a Bedrock pack describes it ([`super::bedrock`]): each render
+/// controller's model and texture, posed by the pack's animations. False when no pack dresses
+/// the mob or none of its textures is in the atlas, and the vanilla model is drawn instead.
+/// How much a baby is scaled when a Bedrock pack dresses it: the pack's models are adult-sized
+/// and Bedrock's own engine shrinks a baby to half.
+const BEDROCK_BABY_SCALE: f32 = 0.5;
+
+/// Blocks a Bedrock layer is lifted off the one under it, per layer (a thirtieth of a pixel).
+const BEDROCK_LAYER_BIAS: f32 = 0.002;
+
+/// `HORIZON_BEDROCK_DEBUG=1`: the first draw of each Bedrock-dressed entity is logged, with what
+/// each layer drew and where the model's lowest point is (`feet` is 1.501 when it stands on the
+/// mob's feet, the same as a vanilla model).
+fn bedrock_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("HORIZON_BEDROCK_DEBUG").is_some())
+}
+
+fn log_bedrock_once(key: String, line: impl FnOnce() -> String) {
+    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<String>>> =
+        std::sync::Mutex::new(None);
+    let mut seen = SEEN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if seen.get_or_insert_with(Default::default).insert(key) {
+        log::info!("bedrock: {}", line());
+    }
+}
+
+/// The scale a pack gives the mob along each axis: `scale` (halved for a baby) times `scalex/y/z`.
+fn bedrock_scale(frame: &super::bedrock::MobFrame, m: &Mob, alpha: f32) -> glam::Vec3 {
+    let s = frame.scale * if m.is_baby() { BEDROCK_BABY_SCALE } else { 1.0 };
+    let mut axes = glam::Vec3::from_array(frame.scale_axes) * s;
+    // `SlimeRenderer.scale`: the body squashes on landing and stretches in the air. A pack's
+    // own hop (when it plays one) rides on top of this.
+    if matches!(m.species(), Species::Slime | Species::MagmaCube) {
+        let size = m.extra.size.max(1) as f32;
+        let h = 1.0 / (m.anim.lerp(0, alpha) / (size * 0.5 + 1.0) + 1.0);
+        axes *= glam::Vec3::new(h, 1.0 / h, h);
+    }
+    axes
+}
+
+fn render_bedrock(
+    m: &Mob,
+    alpha: f32,
+    base: glam::Mat4,
+    atlas: Atlas,
+    light: u32,
+    data: &MobData,
+    out: &mut Vec<Vertex>,
+) -> bool {
+    let bedrock = data
+        .bedrock
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if bedrock.is_empty() {
+        return false;
+    }
+    let Some(frame) = bedrock.frame(m, alpha, base.w_axis.truncate().to_array()) else {
+        return false;
+    };
+    // A pack whose own animation lays the body down on death replaces the game's tilt: the
+    // flip `base_transform` turned about the entity's feet is turned back, in the space it was
+    // made in (the frame that follows it in the chain, which holds the model's 1.501 drop).
+    let mut lying = None;
+    let base = if m.death_time > 0
+        && !super::creaking::tearing_down(m)
+        && frame.pose.bones.values().any(|b| {
+            b.rotation
+                .iter()
+                .chain(&b.rotation_entity)
+                .any(|r| r.abs() >= 45.0)
+        }) {
+        let f = ((m.death_time as f32 + alpha - 1.0) / 20.0 * 1.6)
+            .sqrt()
+            .min(1.0);
+        // Where the mob's feet are, to lay the body down on them below.
+        lying = Some((f, base.transform_point3(glam::Vec3::new(0.0, 1.501, 0.0))));
+        let after = species_rotations(m, alpha)
+            * glam::Mat4::from_scale(glam::Vec3::new(-1.0, -1.0, 1.0))
+            * species_scale(m, alpha)
+            * glam::Mat4::from_translation(glam::Vec3::new(0.0, -1.501, 0.0));
+        base * after.inverse()
+            * glam::Mat4::from_rotation_z(-f * flip_degrees(m).to_radians())
+            * after
+    } else {
+        base
+    };
+    let scale = bedrock_scale(&frame, m, alpha);
+    // Scaled about the feet: a model's ground is 1.501 blocks below its origin.
+    let base = if (scale - glam::Vec3::ONE).abs().max_element() > 1e-4 {
+        let feet = glam::Mat4::from_translation(glam::Vec3::new(0.0, 1.501, 0.0));
+        base * feet * glam::Mat4::from_scale(scale) * feet.inverse()
+    } else {
+        base
+    };
+    let (color, overlay) = (body_color(m, alpha), body_overlay(m, alpha));
+    let mut poses = Poses::pooled();
+    let mut drew = false;
+    let first_vertex = out.len();
+    let mut layers_drawn = 0usize;
+    // Stencil references (as bits) the layers drawn so far wrote.
+    let mut stenciled = 0u32;
+    // The holder's bones, for what the mob holds or wears.
+    let mut holder: std::collections::HashMap<String, (glam::Mat4, glam::Mat4)> =
+        std::collections::HashMap::new();
+    for layer in &frame.layers {
+        // A layer the controller turned off (armour not worn, say) or with no bone shown.
+        if layer.layer.color[3] <= 0.0
+            || !layer
+                .built
+                .names
+                .iter()
+                .any(|n| layer.layer.bone_visible(n))
+        {
+            continue;
+        }
+        let found = atlas(&layer.texture);
+        let Some(uv) = found.or_else(|| layer.fallback.as_deref().and_then(atlas)) else {
+            if bedrock_debug() {
+                log_bedrock_once(format!("{}/{}", m.kind.id, layer.texture), || {
+                    format!(
+                        "{}: texture {} is in neither the pack nor the game; layer skipped",
+                        m.kind.id, layer.texture
+                    )
+                });
+            }
+            continue;
+        };
+        // Bones the pack gives another material (a glowing eye, a scrolling mantle) draw in
+        // their own pass, with that material's flags.
+        let groups = material_groups(
+            &layer.layer,
+            &layer.built.names,
+            &bedrock.bundle().materials,
+        );
+        for (gi, group) in groups.iter().enumerate() {
+            poses.reset(&layer.built.part);
+            super::bedrock::apply_pose(&frame.pose, &layer.built.names, &mut poses);
+            for name in &layer.built.names {
+                if !layer.layer.bone_visible(name) {
+                    poses.visible(name, false);
+                }
+            }
+            if gi == 0 && !frame.attached.is_empty() {
+                let mut here = std::collections::HashMap::new();
+                bone_matrices(&layer.built.part, &poses, &mut here);
+                for (name, m) in here {
+                    holder.entry(name).or_insert(m);
+                }
+            }
+            if groups.len() > 1 {
+                for name in &layer.built.names {
+                    if bedrock
+                        .bundle()
+                        .materials
+                        .flags(layer.layer.material_for(name))
+                        != *group
+                    {
+                        // Its own cubes only: a child with another material still draws, in
+                        // its own pass (a slime's outer shell hangs under a bone of another look).
+                        poses.skip_draw(name);
+                    }
+                }
+            }
+            let flags = *group;
+            // A mask that writes no colour draws nothing to see (what it stencils is not
+            // tracked past the layers that test it, which show only past a body).
+            if flags.no_color {
+                continue;
+            }
+            // An additive layer tinted black adds nothing: a pack that fades a glow out by
+            // overlaying black on an additive material means it not to show.
+            if flags.additive && layer.layer.tint()[..3].iter().all(|c| *c < 0.02) {
+                continue;
+            }
+            // An emissive material lights only the texels the texture leaves less than opaque
+            // (its `_glow` sprite): the rest of the model keeps the world's light.
+            let glow = if flags.emissive && !layer.layer.ignore_lighting && found.is_some() {
+                atlas(&format!("{}_glow", layer.texture))
+            } else {
+                None
+            };
+            let drawn_light = if layer.layer.ignore_lighting {
+                FULL_BRIGHT
+            } else {
+                light
+            };
+            let start = out.len();
+            if flags.energy_swirl {
+                // The game's energy swirl: additive, the texture scrolling over the model.
+                let [u0, v0, u1, v1] = uv;
+                let (du, dv) = layer.layer.uv_anim.map_or((0.0, 0.0), |(o, _)| {
+                    (o[0].rem_euclid(1.0), o[1].rem_euclid(1.0))
+                });
+                draw(
+                    &layer.built.part,
+                    base,
+                    &poses,
+                    [du, dv, 1.0 + du, 1.0 + dv],
+                    crate::breaking::stage_light([u1 - u0, v1 - v0]),
+                    crate::breaking::stage_light([u0, v0]),
+                    crate::gfx::ENERGY_SWIRL_OVERLAY,
+                    out,
+                );
+                for vertex in &mut out[start..] {
+                    vertex.normal = [0; 4];
+                }
+                drew |= out.len() > start;
+                continue;
+            }
+            // A glinting material shows the enchantment's shimmer over its texture.
+            let overlay = if flags.glint { ARMOR_GLINT } else { overlay };
+            draw(
+                &layer.built.part,
+                base,
+                &poses,
+                uv,
+                tint(color, layer.layer.tint()),
+                drawn_light,
+                overlay,
+                out,
+            );
+            if flags.invert_culling {
+                // The faces the game culls are the front ones: turn every quad around.
+                for quad in out[start..].chunks_exact_mut(4) {
+                    quad.swap(1, 3);
+                    for v in quad {
+                        v.normal = v.normal.map(i8::saturating_neg);
+                    }
+                }
+            }
+            if flags.uv_anim {
+                animate_uv(&mut out[start..], uv, layer.layer.uv_anim);
+            }
+            if flags.stencil_not_equal != 0 && stenciled & (1 << flags.stencil_not_equal) != 0 {
+                // Inverted hull: only the faces turned away from the camera stay, so the hull
+                // hides behind the body and shows past its silhouette, as the stencil leaves it.
+                let mut kept = start;
+                for t in (start..out.len().saturating_sub(3)).step_by(4) {
+                    let facing: f32 = out[t..t + 4]
+                        .iter()
+                        .map(|v| {
+                            let n = glam::Vec3::new(
+                                f32::from(v.normal[0]),
+                                f32::from(v.normal[1]),
+                                f32::from(v.normal[2]),
+                            );
+                            n.dot(glam::Vec3::from_array(v.pos))
+                        })
+                        .sum();
+                    // The edges of a flat cube (a wing) have no texture area: they only
+                    // smear one texel across the rim.
+                    let uv = |i: usize| out[t + i].uv;
+                    let area = (0..4)
+                        .map(|i| {
+                            let (a, b) = (uv(i), uv((i + 1) % 4));
+                            a[0] * b[1] - b[0] * a[1]
+                        })
+                        .sum::<f32>()
+                        .abs();
+                    if facing >= 0.0 && area > 1e-9 {
+                        out.copy_within(t..t + 4, kept);
+                        kept += 4;
+                    }
+                }
+                out.truncate(kept);
+            }
+            if flags.stencil_write != 0 && out.len() > start {
+                stenciled |= 1 << flags.stencil_write;
+            }
+            // Layers share faces with the ones below (eyes over a head, a coat over a body): each
+            // is pushed out along its faces by a hair more than the last so the two never tie in
+            // the depth test, which shows as flicker.
+            if layers_drawn > 0 {
+                let push = BEDROCK_LAYER_BIAS * layers_drawn as f32;
+                for v in &mut out[start..] {
+                    for (p, n) in v.pos.iter_mut().zip(v.normal) {
+                        *p += f32::from(n) / 127.0 * push;
+                    }
+                }
+            }
+            layers_drawn += usize::from(out.len() > start);
+            if layer.layer.flat_lighting {
+                flatten_lighting(&mut out[start..]);
+            }
+            if flags.blend || layer.layer.color[3] < 1.0 {
+                mark_oit(&mut out[start..]);
+            }
+            if let Some(glow) = glow {
+                let from = out.len();
+                draw(
+                    &layer.built.part,
+                    base,
+                    &poses,
+                    glow,
+                    tint(color, layer.layer.tint()),
+                    FULL_BRIGHT,
+                    overlay,
+                    out,
+                );
+                let push = BEDROCK_LAYER_BIAS * (layers_drawn + 1) as f32;
+                for v in &mut out[from..] {
+                    for (p, n) in v.pos.iter_mut().zip(v.normal) {
+                        *p += f32::from(n) / 127.0 * push;
+                    }
+                }
+                mark_oit(&mut out[from..]);
+            }
+            if bedrock_debug() {
+                let inverse = base.inverse();
+                let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+                for v in &out[start..] {
+                    let p = inverse.transform_point3(glam::Vec3::from_array(v.pos));
+                    lo = lo.min(p.y);
+                    hi = hi.max(p.y);
+                }
+                let vertices = out.len() - start;
+                let (id, baby) = (m.kind.id.clone(), m.is_baby());
+                log_bedrock_once(format!("{id}/{}/{baby}", layer.layer.geometry), || {
+                    format!(
+                        "{id} baby={baby} scale={scale}: geometry {} texture {} ({}, rect {uv:?}) vertices {vertices} \
+                     top {lo:.3} feet {hi:.3}",
+                        layer.layer.geometry,
+                        layer.texture,
+                        if found.is_some() {
+                            "pack"
+                        } else {
+                            "game's own"
+                        },
+                    )
+                });
+            }
+            // Only what put vertices on screen counts: a pack whose layers all draw nothing leaves
+            // the mob to the vanilla model, not invisible.
+            drew |= out.len() > start;
+        }
+    }
+    if !drew {
+        return false;
+    }
+    // What the mob holds and wears follows the holder's bones.
+    for att in &frame.attached {
+        let bound_only = !att.binds.is_empty();
+        let in_hand = matches!(att.slot, "main_hand" | "off_hand");
+        let hand_scale = if in_hand { frame.held.scale } else { 1.0 };
+        let base_of = |bone: &str| -> Option<glam::Mat4> {
+            // A bone the pack binds follows that bone of the holder; with no bindings at all, a
+            // bone follows the holder's bone of its own name (worn armour on the arm it covers).
+            let target = match att.binds.get(bone) {
+                Some(to) => to.as_str(),
+                None if !bound_only => bone,
+                None => return None,
+            };
+            let (now, rest) = holder.get(target)?;
+            Some(base * *now * glam::Mat4::from_scale(glam::Vec3::splat(hand_scale)) * rest.inverse())
+        };
+        let mut layers_on = 0usize;
+        for layer in &att.layers {
+            if layer.layer.color[3] <= 0.0 {
+                continue;
+            }
+            let Some(uv) =
+                atlas(&layer.texture).or_else(|| layer.fallback.as_deref().and_then(atlas))
+            else {
+                continue;
+            };
+            poses.reset(&layer.built.part);
+            super::bedrock::apply_pose(&att.pose, &layer.built.names, &mut poses);
+            for name in &layer.built.names {
+                if !layer.layer.bone_visible(name) {
+                    poses.visible(name, false);
+                }
+            }
+            let flags = bedrock.bundle().materials.flags(&layer.layer.material);
+            let drawn_light = if layer.layer.ignore_lighting
+                || flags.emissive
+                || (in_hand && frame.held.full_bright)
+            {
+                FULL_BRIGHT
+            } else {
+                light
+            };
+            let start = out.len();
+            draw_attached(
+                &layer.built.part,
+                glam::Mat4::IDENTITY,
+                base,
+                bound_only,
+                &base_of,
+                &poses,
+                uv,
+                tint(color, layer.layer.tint()),
+                drawn_light,
+                overlay,
+                out,
+            );
+            // A layer over another of the same item (the enchant's glint over the armour) shares
+            // its faces: pushed out a hair more each, so the two do not flicker.
+            if layers_on > 0 {
+                let push = BEDROCK_LAYER_BIAS * layers_on as f32;
+                for v in &mut out[start..] {
+                    for (p, n) in v.pos.iter_mut().zip(v.normal) {
+                        *p += f32::from(n) / 127.0 * push;
+                    }
+                }
+            }
+            layers_on += usize::from(out.len() > start);
+            if flags.uv_anim {
+                animate_uv(&mut out[start..], uv, layer.layer.uv_anim);
+            }
+            if layer.layer.flat_lighting {
+                flatten_lighting(&mut out[start..]);
+            }
+            if bedrock_debug() {
+                let vertices = out.len() - start;
+                let (id, item) = (m.kind.id.clone(), att.slot);
+                log_bedrock_once(format!("{id}/{item}/{}", layer.layer.geometry), || {
+                    format!(
+                        "{id}: {item} draws {} with {vertices} vertices (bound to {:?}; holder lacks {:?})",
+                        layer.layer.geometry,
+                        att.binds,
+                        att.binds
+                            .values()
+                            .filter(|b| !holder.contains_key(*b))
+                            .collect::<Vec<_>>()
+                    )
+                });
+            }
+            if flags.blend || layer.layer.color[3] < 1.0 {
+                mark_oit(&mut out[start..]);
+            }
+        }
+    }
+    // A body the pack laid down rests on the ground and, as the fall ends, on the spot where the
+    // mob stood: the pack's own offsets assume its geometry and queries, which the game answers
+    // only in part.
+    if let (Some((f, feet)), true) = (lying, out.len() > first_vertex) {
+        let (mut lo, mut hi) = (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
+        for v in &out[first_vertex..] {
+            let p = glam::Vec3::from_array(v.pos);
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+        let centre = (lo + hi) / 2.0;
+        let shift = glam::Vec3::new((feet.x - centre.x) * f, feet.y - lo.y, (feet.z - centre.z) * f);
+        for v in &mut out[first_vertex..] {
+            for (p, d) in v.pos.iter_mut().zip(shift.to_array()) {
+                *p += d;
+            }
+        }
+    }
+    drew
+}
 #[allow(clippy::too_many_arguments)]
 fn render_visible(
     m: &Mob,
@@ -1963,6 +2599,10 @@ fn render_visible(
     let extra = if layers_shown(m) { extra } else { &[] };
     let overlay = u32::from(red_overlay(m));
     let s = anim::state(m, alpha);
+    // A Bedrock pack that dresses this mob draws it instead, with the mob's own state.
+    if body_visible && render_bedrock(m, alpha, base, atlas, light, data, out) {
+        return;
+    }
     let (model_key, texture) = body(m);
     // The packs' custom entity models replace a layer's parts and maybe its texture. The read
     // guard, not a clone of the Arc: one uncontended lock per mob, nothing else without a pack.
@@ -2571,10 +3211,95 @@ fn crossed_arms_matrix(model: &Part, base: glam::Mat4, poses: &Poses) -> Option<
             * glam::Mat4::from_rotation_x(std::f32::consts::PI),
     )
 }
+/// Where a Bedrock pack's model holds an item: its `rightitem` / `leftitem` bone as the
+/// animation posed it (the arm bone when the model has none), placed as `ItemInHandLayer`
+/// places an item on a hand. `None` when no pack dresses the mob.
+fn bedrock_hand(
+    m: &Mob,
+    alpha: f32,
+    camera: glam::DVec3,
+    data: &MobData,
+    left: bool,
+) -> Option<glam::Mat4> {
+    let bedrock = data
+        .bedrock
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if bedrock.is_empty() || !bedrock.has_entity(&m.kind.id) {
+        return None;
+    }
+    let frame = bedrock.frame(m, alpha, base_transform(m, alpha, camera).w_axis.truncate().to_array())?;
+    let scale = bedrock_scale(&frame, m, alpha);
+    let mut base = base_transform(m, alpha, camera);
+    if (scale - glam::Vec3::ONE).abs().max_element() > 1e-4 {
+        let feet = glam::Mat4::from_translation(glam::Vec3::new(0.0, 1.501, 0.0));
+        base = base * feet * glam::Mat4::from_scale(scale) * feet.inverse();
+    }
+    let (item, arm) = if left {
+        ("leftitem", "leftarm")
+    } else {
+        ("rightitem", "rightarm")
+    };
+    let mut poses = Poses::pooled();
+    for layer in &frame.layers {
+        if layer.layer.color[3] <= 0.0 {
+            continue;
+        }
+        poses.reset(&layer.built.part);
+        super::bedrock::apply_pose(&frame.pose, &layer.built.names, &mut poses);
+        let mut here = std::collections::HashMap::new();
+        bone_matrices(&layer.built.part, &poses, &mut here);
+        let turn =
+            glam::Mat4::from_rotation_x((-90.0f32).to_radians()) * glam::Mat4::from_rotation_y(PI);
+        if let Some((now, _)) = here.get(item) {
+            return Some(
+                base * *now * turn * glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.125, 0.0)),
+            );
+        }
+        if let Some((now, _)) = here.get(arm) {
+            let (ox, oy, oz) = (1.0, 2.0, -10.0);
+            return Some(
+                base * *now
+                    * turn
+                    * glam::Mat4::from_translation(glam::Vec3::new(
+                        if left { -ox } else { ox } / 16.0,
+                        oy / 16.0,
+                        oz / 16.0,
+                    )),
+            );
+        }
+    }
+    None
+}
 /// The pose a mob's held item is submitted under (`ItemInHandLayer`:
 /// `translateToHand`, then the hand offset; the item model adds its own
 /// display transform), or `None` when the mob shows no held items.
 pub fn held_item_transform(
+    m: &Mob,
+    alpha: f32,
+    camera: glam::DVec3,
+    data: &MobData,
+    left: bool,
+) -> Option<glam::Mat4> {
+    // A pack can hide what the mob holds (`hide_held_items`) or scale it (`held_item_scale`).
+    let held = data
+        .bedrock
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .held(m)
+        .unwrap_or_default();
+    if held.hidden {
+        return None;
+    }
+    let t = held_item_transform_in_hand(m, alpha, camera, data, left)?;
+    Some(if (held.scale - 1.0).abs() > 1e-4 {
+        t * glam::Mat4::from_scale(glam::Vec3::splat(held.scale))
+    } else {
+        t
+    })
+}
+
+fn held_item_transform_in_hand(
     m: &Mob,
     alpha: f32,
     camera: glam::DVec3,
@@ -2639,7 +3364,10 @@ pub fn held_item_transform(
         }
         return crossed_arms_matrix(&model, base, &poses);
     }
-    let mut t = hand_base(m, &model, base, &poses, &anchors, left)?;
+    let mut t = match bedrock_hand(m, alpha, camera, data, left) {
+        Some(t) => t,
+        None => hand_base(m, &model, base, &poses, &anchors, left)?,
+    };
     // ItemInHandLayer: a STAB swing of this arm thrusts its item out
     // (SpearAnimations.thirdPersonAttackItem, the main hand's forward
     // movement), and a spear in use moves with it (ArmPose.SPEAR's
@@ -2972,6 +3700,7 @@ mod tests {
             entity_tags: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: Default::default(),
             emissive: Default::default(),
             blinks: Default::default(),
@@ -3065,6 +3794,7 @@ mod tests {
             entity_tags: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: Default::default(),
             emissive: Default::default(),
             blinks: Default::default(),
@@ -3122,6 +3852,7 @@ mod tests {
             entity_tags: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: Default::default(),
             emissive: Default::default(),
             blinks: Default::default(),
@@ -3235,6 +3966,7 @@ mod tests {
             entity_tags: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: Default::default(),
             emissive: Default::default(),
             blinks: Default::default(),
@@ -3544,6 +4276,7 @@ mod scroll_tests {
             entity_tags: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: Default::default(),
             emissive: Default::default(),
             blinks: Default::default(),
@@ -3699,6 +4432,7 @@ mod emissive_tests {
             entity_tags: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: RwLock::new(random),
             emissive: RwLock::new(Arc::new(emissive)),
             blinks: RwLock::new(blinks),
@@ -3975,6 +4709,7 @@ mod random_texture_tests {
             animations: Default::default(),
             villager_hats: Default::default(),
             cem: Default::default(),
+            bedrock: Default::default(),
             random_textures: RwLock::new(random),
             emissive: Default::default(),
             blinks: Default::default(),

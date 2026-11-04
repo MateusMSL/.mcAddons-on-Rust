@@ -333,6 +333,7 @@ impl Game<'_> {
             pack,
             textures,
             cem,
+            bedrock,
             block_entity_shapes,
             sounds,
             ui_metadata,
@@ -414,6 +415,12 @@ impl Game<'_> {
             .cem
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = cem;
+        *self
+            .res
+            .mob_data()
+            .bedrock
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = bedrock;
         self.res
             .block_entity_render()
             .set_shapes(block_entity_shapes);
@@ -550,6 +557,7 @@ pub(super) fn stage_pack(
         &root,
         res.mob_types(),
     ));
+    let bedrock = Arc::new(horizon_client::mobs::bedrock::BedrockMobs::load(&root));
     let block_entity_shapes = res.block_entity_render().shapes_for(&root);
     progress.set(3);
     Ok(StagedPack {
@@ -558,6 +566,7 @@ pub(super) fn stage_pack(
         pack,
         textures,
         cem,
+        bedrock,
         block_entity_shapes,
         sounds,
         ui_metadata,
@@ -574,6 +583,8 @@ pub(super) struct StagedPack {
     pub textures: PreparedTextures,
     /// The packs' custom entity models (OptiFine CEM).
     pub cem: Arc<horizon_client::mobs::cem::CemModels>,
+    /// The Bedrock packs' look for mobs.
+    pub bedrock: Arc<horizon_client::mobs::bedrock::BedrockMobs>,
     /// The block entities' models, the packs' custom entity models over vanilla's.
     pub block_entity_shapes: Arc<horizon_client::block_entity_render::BlockEntityShapes>,
     /// The root's sound events, GUI sprite metadata and current language.

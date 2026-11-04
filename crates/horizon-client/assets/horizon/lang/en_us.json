@@ -1,4 +1,7 @@
 {
+  "horizon.pack.subpack": "Mode: %s",
+  "horizon.pack.settings": "Settings",
+  "horizon.pack.subpack.base": "Default",
   "horizon.options.controller": "Controller",
   "horizon.options.three_d_skin_layers": "3D Skin Layers",
   "horizon.options.vibration": "Vibration",

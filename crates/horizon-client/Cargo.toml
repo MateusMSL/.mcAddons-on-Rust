@@ -22,6 +22,8 @@ horizon-items = { path = "../horizon-items" }
 horizon-core = { path = "../horizon-core" }
 # OptiFine-format pack files: custom entity models, random entity textures.
 horizon-optifine = { path = "../horizon-optifine" }
+# Bedrock resource packs: the look of mobs, sounds and particles (docs/bedrock.md).
+horizon-bedrock = { path = "../horizon-bedrock" }
 # The server thread ahead of the workers (MinecraftServer.spin's Thread.setPriority).
 horizon-threads = { path = "../horizon-threads" }
 horizon-hdr = { path = "../horizon-hdr" }

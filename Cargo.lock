@@ -1286,6 +1286,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-bedrock"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "png",
+ "serde_json",
+ "zip",
+]
+
+[[package]]
 name = "horizon-bench"
 version = "0.1.0"
 dependencies = [
@@ -1324,6 +1334,7 @@ dependencies = [
  "glam",
  "horizon-anticheat",
  "horizon-assets",
+ "horizon-bedrock",
  "horizon-bench",
  "horizon-chat-filter",
  "horizon-client-core",
@@ -1404,6 +1415,7 @@ dependencies = [
  "glam",
  "horizon-anticheat",
  "horizon-assets",
+ "horizon-bedrock",
  "horizon-bench",
  "horizon-chat-filter",
  "horizon-client-core",
@@ -1463,6 +1475,7 @@ dependencies = [
  "glam",
  "half",
  "horizon-assets",
+ "horizon-bedrock",
  "horizon-bench",
  "horizon-client-core",
  "horizon-client-input",

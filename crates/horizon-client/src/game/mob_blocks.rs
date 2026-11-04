@@ -326,6 +326,18 @@ impl Game<'_> {
         if !on_head || horizon_client::mobs::trader::is_invisible(mob) {
             return;
         }
+        // A pack's snow golem carries its own pumpkin in its model.
+        if species == Species::SnowGolem
+            && self
+                .res
+                .mob_data()
+                .bedrock
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .has_entity(&mob.kind.id)
+        {
+            return;
+        }
         let registry = &self.pack.assets.registry;
         let block = match species {
             Species::SnowGolem => "minecraft:carved_pumpkin",

@@ -15,6 +15,7 @@ pub mod armadillo;
 pub mod armor;
 pub mod axolotl;
 pub mod bat;
+pub mod bedrock;
 pub mod bee;
 pub mod body_anim;
 pub mod brain;
@@ -925,6 +926,8 @@ pub struct Extra {
     pub from_bucket: bool,
     /// Command-created armor instances, shared by commands and runtime damage.
     pub armor_attributes: Option<Box<horizon_world::attributes::entity::EntityAttributes>>,
+    /// The world around the mob, for a Bedrock pack's queries (sampled while one asks).
+    pub surroundings: Option<Arc<bedrock::Surroundings>>,
     /// `Mob.lootTable`: the table its death rolls instead of its type's
     /// (saved as `DeathLootTable`).
     pub death_loot_table: Option<String>,
@@ -3416,7 +3419,11 @@ impl Mob {
         // LivingEntity.tick: CombatTracker.recheckStatus.
         let alive = self.alive();
         self.combat.recheck(alive, self.age);
-        ai::tick(self, w, level_random, events)
+        let keep = ai::tick(self, w, level_random, events);
+        if bedrock::wants_surroundings() && self.age.wrapping_add(self.id).is_multiple_of(4) {
+            self.extra.surroundings = Some(Arc::new(bedrock::sample_surroundings(self, w)));
+        }
+        keep
     }
     /// The section the mob is in, noted when it changes (`EntitySection` lists).
     fn track_section(&mut self) {
