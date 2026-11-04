@@ -1,2 +1,13 @@
 /summon creeper ~ ~ ~ {powered:1}
 /time set 0
+/gamemode spectator
+/gamemode survival
+/gamemode creative
+/summon creeper ~ ~ ~ {powered:1}
+/time set 0
+/summon creeper ~ ~ ~ {powered:1}
+/summon minecraft:skeleton
+/summon creeper ~ ~ ~ {powered:1}
+/time set 0
+/time set minecraft:night
+/summon creeper ~ ~ ~ {powered:1}

@@ -54,6 +54,11 @@ pub struct Held {
     pub hidden: bool,
     pub scale: f32,
     pub full_bright: bool,
+    /// The pack dresses the item in the main hand (an attachable draws it): the game's own
+    /// model of it stays out.
+    pub main_replaced: bool,
+    /// The same for the off hand.
+    pub off_replaced: bool,
 }
 
 impl Default for Held {
@@ -62,6 +67,8 @@ impl Default for Held {
             hidden: false,
             scale: 1.0,
             full_bright: false,
+            main_replaced: false,
+            off_replaced: false,
         }
     }
 }
@@ -489,27 +496,12 @@ fn common_query(name: &str, args: &[Value]) -> Value {
 
 /// The engine's build, logged once with `HORIZON_BEDROCK_DEBUG`: tells whether the game runs the
 /// files the last overlay carried.
-pub const ENGINE_BUILD: &str = "v29-materials-entities";
+pub const ENGINE_BUILD: &str = "v36-debug-file";
 
 /// `HORIZON_BEDROCK_DUMP=skeleton,creeper`: the kinds (by part of the id) whose state is logged
 /// once a second while within twelve blocks of the camera.
 fn dump_wanted(kind: &str) -> bool {
-    static KINDS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-    let kinds = KINDS.get_or_init(|| {
-        if std::env::var_os("HORIZON_BEDROCK_DEBUG").is_some() {
-            log::info!("bedrock: engine build {ENGINE_BUILD}");
-        }
-        std::env::var("HORIZON_BEDROCK_DUMP")
-            .unwrap_or_default()
-            .split(',')
-            .map(|k| k.trim().to_ascii_lowercase())
-            .filter(|k| !k.is_empty())
-            .collect()
-    });
-    let kind_lc = kind.to_ascii_lowercase();
-    kinds
-        .iter()
-        .any(|k| k == "all" || kind_lc.contains(k.as_str()))
+    super::bedrock_debug::settings().dumps(kind)
 }
 
 /// One line of what a mob's pack is doing: what the game answers, what runs, the bones moved
@@ -575,13 +567,18 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
         .iter()
         .map(|l| {
             format!(
-                "{}|{}|mat={}|col={:?}|ov={:?}|uv={:?}",
+                "{}|{}|mat={}|col={:?}|ov={:?}|uv={:?}|hide={:?}",
                 l.geometry.trim_start_matches("geometry.oreville_ans."),
                 l.texture.rsplit('/').next().unwrap_or(""),
                 l.material,
                 l.color,
                 l.overlay,
-                l.uv_anim
+                l.uv_anim,
+                l.visibility
+                    .iter()
+                    .filter(|(_, v)| !*v)
+                    .map(|(p, _)| p.as_str())
+                    .collect::<Vec<_>>()
             )
         })
         .collect();
@@ -594,8 +591,7 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
 /// With `HORIZON_BEDROCK_DEBUG`, each query nothing answers is logged once: a pack's animation
 /// that never starts is often waiting on one of them.
 fn note_unanswered(name: &str) {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if !*ON.get_or_init(|| std::env::var_os("HORIZON_BEDROCK_DEBUG").is_some()) {
+    if !super::bedrock_debug::debug() {
         return;
     }
     static SEEN: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
@@ -722,6 +718,9 @@ impl Host for MobHost<'_> {
     }
 
     fn query(&mut self, name: &str, args: &[Value]) -> Value {
+        if let Some(v) = super::bedrock_debug::query(name) {
+            return Value::Num(v);
+        }
         let m = self.m;
         if let Some(v) = world_query(m, name, args) {
             return v;
@@ -1546,7 +1545,7 @@ impl BedrockMobs {
     /// The bundle of the resource root `root` (empty without a Bedrock pack).
     pub fn load(root: &Path) -> BedrockMobs {
         let bundle = Bundle::load(root);
-        if std::env::var_os("HORIZON_BEDROCK_DEBUG").is_some() && !bundle.ignored.is_empty() {
+        if super::bedrock_debug::debug() && !bundle.ignored.is_empty() {
             let lines = horizon_bedrock::audit::lines(&bundle.ignored);
             log::info!(
                 "bedrock: {} keys the pack carries and the engine ignores:\n{}",
@@ -1706,12 +1705,11 @@ impl BedrockMobs {
                 m.age,
                 dump_line(m, &mut host, &frame, &st.instance.describe(def, &assets)),
             );
-            let vars = std::env::var("HORIZON_BEDROCK_DUMP_VARS").unwrap_or_default();
-            let vars: Vec<String> = vars
-                .split(',')
-                .filter(|v| !v.trim().is_empty())
+            let vars: Vec<String> = super::bedrock_debug::settings()
+                .dump_vars
+                .iter()
                 .map(|v| {
-                    let v = v.trim();
+                    let v = v.as_str();
                     format!(
                         "v.{v}={:?}",
                         st.instance.vars.get(&horizon_bedrock::molang::intern(v))
@@ -1810,13 +1808,18 @@ impl BedrockMobs {
             }
         }
         let scale = frame.scale;
-        let held = Held {
+        let mut held = Held {
             hidden: frame.hide_held_items,
             scale: frame.held_item_scale,
             full_bright: frame.held_item_ignores_lighting,
+            main_replaced: false,
+            off_replaced: false,
         };
         self.parent_setups(m, alpha, dt, from_camera, &mut st.instance.vars);
         let mut attached = self.attachments(m, alpha, dt, from_camera, &st.instance.vars);
+        let dressed = |slot: &str| attached.iter().any(|a| a.slot == slot && !a.layers.is_empty());
+        held.main_replaced = dressed("main_hand");
+        held.off_replaced = dressed("off_hand");
         if held.hidden {
             attached.retain(|a| !matches!(a.slot, "main_hand" | "off_hand"));
         }
@@ -2462,6 +2465,75 @@ mod tests {
         assert_eq!(wrap_degrees(190.0), -170.0);
         assert_eq!(wrap_degrees(-190.0), 170.0);
         assert_eq!(wrap_degrees(720.0), 0.0);
+    }
+
+    #[test]
+    fn a_held_item_modelled_at_the_origin_lands_on_the_hand() {
+        use super::super::render::{bone_matrices, held_anchor, posed};
+        let g = geometry::parse_file(
+            &horizon_bedrock::jsonc::parse(
+                r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.t","texture_width":16,"texture_height":16},
+                "bones":[{"name":"item","pivot":[0,0,0],"cubes":[{"origin":[-1,0,-1],"size":[2,8,2],"uv":[0,0]}]},
+                         {"name":"hand","pivot":[-6,15,1]}]}]}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .remove(0);
+        let b = bake(&g);
+        let poses = super::super::anim::Poses::new(&b.part);
+        let mut matrices = HashMap::new();
+        bone_matrices(&b.part, &poses, &mut matrices);
+        let (now, _) = matrices["hand"];
+        let item = b.part.children.iter().find(|c| c.name == "item").unwrap().pose;
+        // The item's origin, drawn the way `draw_attached` does: the holder's anchor, then the
+        // item's own pose (in sixteenths, as every pose is).
+        let at = (held_anchor(now, 1.0) * posed(glam::Mat4::IDENTITY, item)).transform_point3(glam::Vec3::ZERO);
+        let hand = now.transform_point3(glam::Vec3::ZERO);
+        assert!((at - hand).length() < 1e-4, "{at:?} vs {hand:?}");
+        // And that is where the hand is: 15 sixteenths up, 6 to the side, not blocks away.
+        assert!(hand.length() < 1.5, "{hand:?}");
+    }
+
+    /// `HORIZON_TEST_PACK=<pack dir> cargo test -p horizon-client-lib --lib -- sword_probe --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a pack"]
+    fn sword_probe() {
+        use super::super::render::{bone_matrices, held_anchor, posed};
+        let Ok(dir) = std::env::var("HORIZON_TEST_PACK") else { return };
+        let pack = horizon_bedrock::pack::Pack::open(std::path::Path::new(&dir)).unwrap();
+        let mut geos = HashMap::new();
+        let mut builtin = horizon_bedrock::bundle::Bundle::default();
+        builtin.add_builtins();
+        geos.extend(builtin.geometries);
+        for p in pack.paths().map(str::to_owned).collect::<Vec<_>>() {
+            if p.starts_with("models/") && p.ends_with(".json") {
+                if let Ok(list) = pack.read_json(&p).map_err(|_| ()).and_then(|v| geometry::parse_file(&v).map_err(|_| ())) {
+                    for g in list {
+                        geos.insert(g.id.to_ascii_lowercase(), g);
+                    }
+                }
+            }
+        }
+        let player = bake(&geos["geometry.humanoid.custom"]);
+        let sword = bake(&geos["geometry.oreville_ans.ccyhyr"]);
+        let poses = super::super::anim::Poses::new(&player.part);
+        let mut m = HashMap::new();
+        bone_matrices(&player.part, &poses, &mut m);
+        let (now, _) = m["rightitem"];
+        let mut out = Vec::new();
+        let item_poses = super::super::anim::Poses::new(&sword.part);
+        let anchor = held_anchor(now, 1.0);
+        let _ = posed;
+        super::super::render::draw_attached(&sword.part, glam::Mat4::IDENTITY, glam::Mat4::IDENTITY, true, &|b| (b == "sword").then_some(anchor), &item_poses, [0.0, 0.0, 1.0, 1.0], 0, 0, 0, &mut out);
+        let (mut lo, mut hi) = (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
+        for v in &out {
+            let p = glam::Vec3::from_array(v.pos);
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+        // The game's frame: y down from the 24 line; above the feet is 1.5 - y.
+        eprintln!("sword x {:.2}..{:.2} height above feet {:.2}..{:.2} z {:.2}..{:.2}", lo.x, hi.x, 1.5 - hi.y, 1.5 - lo.y, lo.z, hi.z);
     }
 
     #[test]

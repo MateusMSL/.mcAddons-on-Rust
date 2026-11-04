@@ -403,6 +403,9 @@ impl Game<'_> {
         // ItemInHandLayer submits with OverlayTexture.NO_OVERLAY: no hurt tint.
         for (item, off_hand) in [(&mob.extra.main_hand, false), (&mob.extra.off_hand, true)] {
             let Some(item) = item else { continue };
+            if render::held_item_replaced(mob, self.res.mob_data(), off_hand) {
+                continue;
+            }
             let left = off_hand != mob.main_arm_left();
             // PlayerItemInHandLayer.submitArmWithItem (avatars only): a spyglass
             // in use, with no swing in progress, is held to the eye (`heldOnHead`).

@@ -3,7 +3,7 @@
 //! other. The conversion is kept on disk and made again only when the source changes.
 
 use horizon_bedrock::convert::{cache_name, to_java};
-use horizon_bedrock::pack::{Options, Pack};
+use horizon_bedrock::pack::{Options, Pack, order_by_dependencies};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -111,10 +111,13 @@ fn subpack_key(subpack: Option<&str>) -> u64 {
 /// The marker a finished conversion leaves, so an interrupted one is made again.
 const DONE: &str = ".horizon-bedrock-done";
 
-/// Whether the file name is a Bedrock pack's by extension alone.
+/// Whether the file name is a Bedrock pack's by extension alone: a pack, an add-on, or a world
+/// or template that carries resource packs.
 pub fn is_bedrock_file(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    lower.ends_with(".mcpack") || lower.ends_with(".mcaddon")
+    [".mcpack", ".mcaddon", ".mcworld", ".mctemplate"]
+        .iter()
+        .any(|e| lower.ends_with(e))
 }
 
 /// Where `path` (a folder, `.zip`, `.mcpack` or `.mcaddon`) would be converted to and a stamp
@@ -162,16 +165,47 @@ pub fn convert(
         subpack: subpack.map(str::to_owned),
     };
     // A subpack the pack does not have (an old choice) falls back to the base.
-    let packs = Pack::open_all(path, &options)
+    let packs = match Pack::open_all(path, &options)
         .or_else(|_| Pack::open_all(path, &Options::default()))
-        .ok()?;
-    let packs: Vec<&Pack> = packs
-        .iter()
-        .filter(|p| p.manifest().is_resource_pack())
-        .collect();
+    {
+        Ok(packs) => packs,
+        Err(e) => {
+            log::warn!(
+                "Horizon: the Bedrock pack {} cannot be read: {e}",
+                path.display()
+            );
+            return None;
+        }
+    };
+    let (packs, missing) = order_by_dependencies(
+        packs
+            .into_iter()
+            .filter(|p| p.manifest().is_resource_pack())
+            .collect(),
+    );
     if packs.is_empty() {
+        log::warn!(
+            "Horizon: {} holds no Bedrock resource pack (behaviour packs and scripts are not read)",
+            path.display()
+        );
         return None;
     }
+    for (pack, dependency) in &missing {
+        log::warn!(
+            "Horizon: the pack {pack} in {} depends on {dependency}, which is not in the file",
+            path.display()
+        );
+    }
+    for pack in &packs {
+        if pack.manifest().needs_newer_engine() {
+            log::warn!(
+                "Horizon: the pack {} asks for a newer game than the formats known ({}): what it uses that is new is left out",
+                pack.manifest().name,
+                horizon_bedrock::manifest::ENGINE_VERSION
+            );
+        }
+    }
+    let packs: Vec<&Pack> = packs.iter().collect();
     let _ = fs::remove_dir_all(&out);
     for pack in packs {
         match to_java(pack, &out, format) {
@@ -241,6 +275,7 @@ mod tests {
     #[test]
     fn names() {
         assert!(is_bedrock_file("A.McPack") && is_bedrock_file("b.mcaddon"));
+        assert!(is_bedrock_file("w.mcworld") && is_bedrock_file("t.MCTEMPLATE"));
         assert!(!is_bedrock_file("c.zip"));
     }
 

@@ -73,6 +73,49 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The top folders a pack's data holds (what is not a pack's own folder).
+fn is_data_folder(name: &std::ffi::OsStr) -> bool {
+    matches!(
+        name.to_str().unwrap_or(""),
+        "entity"
+            | "attachables"
+            | "animations"
+            | "animation_controllers"
+            | "render_controllers"
+            | "models"
+            | "particles"
+            | "materials"
+            | "sounds"
+    )
+}
+
+/// The packs' folders under `base`, lowest first: `order.txt`'s, then any others by name. The
+/// empty name stands for `base` itself (files of a conversion that kept no folders).
+fn namespaces(base: &Path) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let listed: Vec<String> = fs::read_to_string(base.join("order.txt"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_owned())
+        .filter(|l| !l.is_empty())
+        .collect();
+    let mut others: Vec<String> = fs::read_dir(base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir() && !is_data_folder(&e.file_name()))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !listed.contains(n))
+        .collect();
+    others.sort();
+    for n in others.into_iter().chain(listed) {
+        if base.join(&n).is_dir() {
+            out.push(n);
+        }
+    }
+    out
+}
+
 impl Bundle {
     /// What the game itself gives every pack: the vanilla animations, render controllers and
     /// geometries a pack refers to without defining them. A pack's own files, read after, win.
@@ -94,16 +137,34 @@ impl Bundle {
     }
 
     /// Reads `<root>/assets/horizon_bedrock/`. A root without it gives an empty bundle.
+    ///
+    /// Each converted pack keeps its data in a folder of its own ([`crate::convert::namespace`]);
+    /// `order.txt` there lists them from the lowest pack of the stack to the highest, so a pack
+    /// above another wins an identifier both define. Files straight under the folder (an older
+    /// conversion) count as the lowest.
     pub fn load(root: &Path) -> Bundle {
         let base = root.join(DATA_DIR);
-        let mut all = Vec::new();
-        files(&base, &mut all);
+        let mut all: Vec<(PathBuf, PathBuf)> = Vec::new();
+        for ns in namespaces(&base) {
+            let dir = if ns.is_empty() { base.clone() } else { base.join(&ns) };
+            let mut found = Vec::new();
+            files(&dir, &mut found);
+            for path in found {
+                let Ok(rel) = path.strip_prefix(&dir) else { continue };
+                if ns.is_empty()
+                    && rel
+                        .components()
+                        .next()
+                        .is_some_and(|c| base.join(c.as_os_str()).is_dir() && !is_data_folder(c.as_os_str()))
+                {
+                    continue;
+                }
+                all.push((path.clone(), rel.to_path_buf()));
+            }
+        }
         let mut b = Bundle::default();
         b.add_builtins();
-        for path in all {
-            let Ok(rel) = path.strip_prefix(&base) else {
-                continue;
-            };
+        for (path, rel) in all {
             let rel = rel.to_string_lossy().replace('\\', "/");
             let Ok(bytes) = fs::read(&path) else { continue };
             if rel.ends_with(".material") {
@@ -156,7 +217,10 @@ impl Bundle {
                 }
                 "sounds.json" => b.sound_events.add_file(&v),
                 _ if rel == crate::settings::FILE => {
-                    b.settings.extend(crate::settings::from_json(&v));
+                    for d in crate::settings::from_json(&v) {
+                        b.settings.retain(|o| o.name != d.name);
+                        b.settings.push(d);
+                    }
                 }
                 _ => {}
             }
@@ -279,7 +343,10 @@ mod tests {
         assert_eq!(lower.rotation, [0.0, 180.0, 0.0]);
         let turned = |c: &crate::geometry::Cube, axis: usize| {
             let p = lower.pivot[axis];
-            [2.0 * p - (c.origin[axis] + c.size[axis]), 2.0 * p - c.origin[axis]]
+            [
+                2.0 * p - (c.origin[axis] + c.size[axis]),
+                2.0 * p - c.origin[axis],
+            ]
         };
         assert_eq!(turned(l, 0), [-2.5, 1.5]);
         assert_eq!(turned(l, 2), [-4.0, 4.0]);
@@ -288,5 +355,46 @@ mod tests {
         let bed = &b.geometries["geometry.bed"];
         let cubes: usize = bed.bones.iter().map(|b| b.cubes.len()).sum();
         assert_eq!(cubes, 6);
+    }
+
+    #[test]
+    fn every_stacked_packs_data_is_kept_and_the_top_one_wins() {
+        let src = std::env::temp_dir().join(format!("horizon-bedrock-stack-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&src);
+        let base = src.join(DATA_DIR);
+        let put = |ns: &str, rel: &str, text: &str| {
+            let p = base.join(ns).join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, text).unwrap();
+        };
+        let toggle = |name: &str| {
+            serde_json::json!([{"type": "toggle", "name": name, "text": name, "default": true}])
+                .to_string()
+        };
+        let entity = |id: &str, geometry: &str| {
+            format!(
+                r#"{{"format_version":"1.10.0","minecraft:client_entity":{{"description":{{"identifier":"{id}","geometry":{{"default":"{geometry}"}}}}}}}}"#
+            )
+        };
+        // Two packs: both have a settings file and a material file of the same name; both
+        // define `minecraft:cow`, under different file names.
+        put("a", "pack_settings.json", &toggle("ns:a"));
+        put("b", "pack_settings.json", &toggle("ns:b"));
+        put("a", "entity/cow_a.json", &entity("minecraft:cow", "geometry.low"));
+        put("b", "entity/cow_b.json", &entity("minecraft:cow", "geometry.high"));
+        // `b` is listed first, so `a` is the pack on top.
+        fs::write(base.join("order.txt"), "b\na\n").unwrap();
+        let loaded = Bundle::load(&src);
+        let mut names: Vec<_> = loaded.settings.iter().map(|d| d.name.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["ns:a", "ns:b"], "{names:?}");
+        let cow = &loaded.entities["minecraft:cow"];
+        assert_eq!(cow.geometry.get("default").map(String::as_str), Some("geometry.low"));
+        // And the other way round.
+        fs::write(base.join("order.txt"), "a\nb\n").unwrap();
+        let loaded = Bundle::load(&src);
+        let cow = &loaded.entities["minecraft:cow"];
+        assert_eq!(cow.geometry.get("default").map(String::as_str), Some("geometry.high"));
+        let _ = fs::remove_dir_all(&src);
     }
 }

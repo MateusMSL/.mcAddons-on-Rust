@@ -36,6 +36,10 @@ impl std::fmt::Display for Version {
     }
 }
 
+/// The newest game version whose pack formats this crate reads (`min_engine_version` and the
+/// `format_version` of its files). A pack asking for more still loads, with what is known.
+pub const ENGINE_VERSION: Version = Version([1, 26, 30]);
+
 /// What a module is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
@@ -198,6 +202,11 @@ impl Manifest {
             subpacks,
             settings: crate::settings::parse(root),
         })
+    }
+
+    /// Whether the pack asks for a newer game than the formats this crate knows.
+    pub fn needs_newer_engine(&self) -> bool {
+        self.min_engine_version.is_some_and(|v| v > ENGINE_VERSION) || self.format_version > 2
     }
 
     pub fn is_resource_pack(&self) -> bool {

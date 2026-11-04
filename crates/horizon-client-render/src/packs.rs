@@ -864,6 +864,7 @@ fn build_overlay_uncached(
         dependencies,
         &mut extract,
     )?;
+    write_bedrock_order(&files, out)?;
     // Inflating and writing a big pack's files one by one was most of a cold build; its
     // folders all exist by now.
     crate::par::par_map(&extract, |(owner, inner, target)| {
@@ -882,6 +883,44 @@ fn build_overlay_uncached(
     })
     .into_iter()
     .collect()
+}
+/// `assets/horizon_bedrock/order.txt`: the converted Bedrock packs' folders, the lowest pack of
+/// the stack first, which is how [`horizon_bedrock::bundle::Bundle`] lets a pack above another
+/// win an identifier both define (the files themselves never collide: each pack has a folder).
+fn write_bedrock_order(files: &BTreeMap<String, (usize, Provided)>, out: &Path) -> io::Result<()> {
+    const DATA: [&str; 9] = [
+        "entity",
+        "attachables",
+        "animations",
+        "animation_controllers",
+        "render_controllers",
+        "models",
+        "particles",
+        "materials",
+        "sounds",
+    ];
+    let prefix = "assets/horizon_bedrock/";
+    let mut folders: BTreeMap<&str, usize> = BTreeMap::new();
+    for (name, (owner, _)) in files.range(prefix.to_owned()..) {
+        let Some(rest) = name.strip_prefix(prefix) else {
+            break;
+        };
+        if let Some((folder, _)) = rest.split_once('/')
+            && !DATA.contains(&folder)
+        {
+            let slot = folders.entry(folder).or_insert(*owner);
+            *slot = (*slot).max(*owner);
+        }
+    }
+    if folders.is_empty() {
+        return Ok(());
+    }
+    let mut order: Vec<(&str, usize)> = folders.into_iter().collect();
+    order.sort_by_key(|(folder, owner)| (*owner, *folder));
+    let text: String = order.iter().map(|(f, _)| format!("{f}\n")).collect();
+    let dir = out.join("assets/horizon_bedrock");
+    fs::create_dir_all(&dir)?;
+    fs::write(dir.join("order.txt"), text)
 }
 /// Files vanilla loads from every pack in turn (`getResourceStack`) rather
 /// than from the top pack only.
@@ -1220,6 +1259,22 @@ impl SelectionModel {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn converted_bedrock_packs_are_listed_lowest_first() {
+        let out = std::env::temp_dir().join(format!("horizon-bedrock-order-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&out);
+        let provided: Provided = (None, String::new());
+        let mut files = BTreeMap::new();
+        files.insert("assets/horizon_bedrock/top/materials/entity.material".to_owned(), (2, provided.clone()));
+        files.insert("assets/horizon_bedrock/low/materials/entity.material".to_owned(), (0, provided.clone()));
+        files.insert("assets/horizon_bedrock/low/entity/a.json".to_owned(), (0, provided.clone()));
+        files.insert("assets/horizon_bedrock/entity/legacy.json".to_owned(), (1, provided));
+        write_bedrock_order(&files, &out).unwrap();
+        let text = fs::read_to_string(out.join("assets/horizon_bedrock/order.txt")).unwrap();
+        assert_eq!(text, "low\ntop\n");
+        let _ = fs::remove_dir_all(&out);
+    }
+
     use super::*;
 
     /// `DownloadedPackSource.DOWNLOADED_PACK_SELECTION`: the pack is selected,

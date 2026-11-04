@@ -2,7 +2,7 @@
 //! the values a player chose, and the answers to `query.is_pack_setting_enabled` and
 //! `query.is_pack_setting_selected`.
 //!
-//! Definitions travel with the converted pack (`pack_settings.json`, labels already looked up in
+//! Definitions travel with the converted pack (`pack_settings.json` in the pack's own folder, labels already looked up in
 //! the pack's language file). The values live in the game folder's `config/horizon-addons.json`,
 //! by pack file name, beside the subpack choice:
 //!

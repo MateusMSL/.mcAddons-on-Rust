@@ -16,6 +16,7 @@ pub mod armor;
 pub mod axolotl;
 pub mod bat;
 pub mod bedrock;
+pub mod bedrock_debug;
 pub mod bee;
 pub mod body_anim;
 pub mod brain;

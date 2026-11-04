@@ -12,12 +12,12 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 - [x] `.mcpack`, zip, pasta com `manifest.json`, `.brarchive`
 - [x] Subpacks (`subpacks`) e `settings` (toggle, dropdown, multiselect, slider), tela **Settings**, `config/horizon-addons.json`
 - [x] `texts/*.lang`, `splashes.json`
-- [~] `.mcaddon` (vários packs num zip): resource pack lido, behavior pack ignorado. Verificar com um `.mcaddon` real
-- [ ] `dependencies` entre packs (ordem e aviso de pack faltando)
-- [ ] Vários packs Bedrock ativos ao mesmo tempo (merge por ordem de prioridade; hoje cada um vira um pack Java)
-- [ ] `.mctemplate` / `.mcworld` (packs embutidos no mundo)
-- [ ] Packs criptografados (`contents.json` com chave): recusar com mensagem clara
-- [ ] `min_engine_version` / `format_version` novos: aviso no log em vez de falha silenciosa
+- [x] `.mcaddon`: resource packs lidos (pastas e `.mcpack` aninhados), behavior pack ignorado (`validate_install`: 7 contêineres idênticos à pasta; Naturalist `.mcaddon` real: RP lido, BP ignorado)
+- [x] `dependencies` entre packs: ordem de carga e aviso de pack faltando no log
+- [x] Vários packs Bedrock ativos: dados de cada pack em `assets/horizon_bedrock/<uuid>/` (`materials/entity.material` e `sounds.json` de um pack não apagam os do outro); `order.txt` do overlay lista os packs do mais baixo ao mais alto, e o de cima vence o identificador que os dois definem; `settings` por pack (revisão 7, v33)
+- [x] `.mctemplate` / `.mcworld`: `resource_packs/*` lidos
+- [x] Packs criptografados (`contents.json` cifrado): recusados com erro `Encrypted` nomeado no log
+- [x] `min_engine_version` / `format_version` novos: aviso no log
 
 ## 2. Entidades (client entity)
 
@@ -34,10 +34,13 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 - [~] Projéteis e itens soltos: render offline de `minecart`, `splash_potion`, `snowball`, `egg`, `xp_orb`, `evocation_fang` ok; `arrow` e `fishing_hook` usam textura do jogo (`java_texture`), só conferem no jogo
 - [~] Entidades montadas: `q.ride_body_y_rotation`, `ride_head_y_rotation`, `ride_head_x_rotation` valem a pose do veículo no passageiro (v29); `rider_*` (veículo lê o passageiro) seguem 0
 
+- [x] Molang: parênteses com lista de comandos (`( v.a = 4; v.b = 2; v.a * v.b; )`, estilo Blockbench) valem o último comando; 7911 expressões do Naturalist parseiam (v31)
+
 ## 3. Attachables (itens na mão e vestidos)
 
 - [x] `parent_setup` roda na entidade que segura (v24)
 - [x] Item na mão em 3ª pessoa: osso `rightitem`/`leftitem`, `binding`, filhos seguem o pai
+- [~] Item na mão: modelado ao redor da origem, que cai no osso `rightitem` inteiro (pivô incluído), com o recuo de 24 do modelo cancelado (`held_anchor`); peças vestidas seguem só a variação (v33; conferir no jogo, F5)
 - [~] Armadura vestida: ossos de mesmo nome seguem o osso do portador; camadas sobrepostas deslocadas (v25)
 - [~] `texture_meshes` com sprite do jogo (`mesh_variant`): item plano e `use_pixel_depth`
 - [ ] **1ª pessoa**: `c.is_first_person=1`, mão e item no espaço da câmera. Hoje só o sprite novo do item aparece
@@ -89,3 +92,10 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 | v27 `body-slot-swim` | slot `body` (arreio do ghast, armadura de cavalo) vira attachable; `is_swimming` do jogador = pose de nado; `ground_speed` 3D no nado (inclinação do corpo = pitch); UV 0,05 texel | pendente |
 | v28 `swim-diag` | `is_swimming` volta a valer "na água" (nado sem correr) ou pose de nado; dump ganha `ground_speed`, `vertical_speed`, `is_swimming`... | pendente |
 | v29 `materials-entities` | `DisableDepthWrite`/`DisableDepthTest` e multitexture desenhados; `geometry.evocation_fang` + `bite` e `geometry.bed` embutidas; `ride_*` | pendente (jogo) |
+| v30 `emissive-solid` | material emissivo (`entity_emissive*`, `EMISSIVE`): o alfa da textura é brilho, não transparência; `_solid.png` gerado na conversão (revisão 5) e usado no corpo do modelo (charged creeper translúcido, lentes do óculos); item na mão com attachable do pack não desenha o modelo do jogo (3ª pessoa) | pendente (jogo) |
+| v31 `install-matrix` | `.mcworld`/`.mctemplate`, `.mcpack` aninhado em `.mcaddon`, nomes com `\\`, dependências, aviso de engine nova, recusa de pack criptografado, `settings` por pack (revisão 6); exemplo `validate_install` | offline ok; jogo pendente |
+| v32 `held-origin` | item na mão (`binding` do slot) usa a pose inteira do osso do portador (antes: variação do repouso, item caía nos pés); Molang com lista de comandos entre parênteses; `HORIZON_BEDROCK_HIDE=<texturas>` esconde camadas para diagnóstico | pendente (jogo) |
+| v33 `pack-folders` | vários packs Bedrock ativos não se sobrescrevem (pasta por UUID + `order.txt`); causa do casco ciano do creeper carregado: o `entity.material` do Naturalist substituía o do A&S; item na mão ancorado no osso com o recuo de 24 do modelo (`held_anchor`) | pendente (jogo) |
+| v34 `held-blocks` | item na mão: o recuo de 24 do modelo estava em unidades erradas (24 blocos em vez de 24/16: arco do esqueleto 22 blocos acima); teste com o `posed` real e sonda `sword_probe` (espada de A&S no jogador: 0,85 a 2,47 acima dos pés, perto da mão); log de debug dá a caixa do item em blocos desde os pés e a posição do osso da mão | pendente (jogo) |
+| v35 `glow-alpha` | `_solid` só para material emissivo sem blend nem aditivo (casco do creeper); brilho que mistura ou soma (olhos, aura do enderman/aranha) volta a usar o alfa da textura (v30 o deixava opaco: quadrados e discos chapados) | pendente (jogo) |
+| v36 `debug-file` | `bedrock-debug.json` recarregado em jogo a cada segundo (hide, dump, dump_vars, flags de material por nome, queries fixas; chave errada = erro no log, valor antigo mantido); modelo criado com `HORIZON_BEDROCK_DEBUG=1`; configurações de execução do IntelliJ em `.run/` (jogo, exemplos, testes); exemplo `list_glow` | offline ok |

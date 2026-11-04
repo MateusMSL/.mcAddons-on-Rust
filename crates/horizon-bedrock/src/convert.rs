@@ -59,7 +59,11 @@ pub fn atlas_name(texture: &str) -> String {
 
 /// Bedrock's name for a dye colour, Java's: `silver` is `light_gray`.
 fn dye(color: &str) -> &str {
-    if color == "silver" { "light_gray" } else { color }
+    if color == "silver" {
+        "light_gray"
+    } else {
+        color
+    }
 }
 
 /// The Java sprite a Bedrock texture the pack does not ship stands for: packs point at vanilla
@@ -81,7 +85,11 @@ pub fn java_texture(texture: &str) -> Option<String> {
     }
     if let Some(armor) = rest.strip_prefix("models/armor/") {
         let (material, layer) = armor.rsplit_once('_').unwrap_or((armor, "1"));
-        let folder = if layer == "2" { "humanoid_leggings" } else { "humanoid" };
+        let folder = if layer == "2" {
+            "humanoid_leggings"
+        } else {
+            "humanoid"
+        };
         return Some(match material {
             "elytra" => "entity/equipment/wings/elytra".into(),
             "chain" => format!("entity/equipment/{folder}/chainmail"),
@@ -112,7 +120,9 @@ pub fn java_texture(texture: &str) -> Option<String> {
             "entity/villager/profession_level/{}",
             &r["entity/villager2/levels/level_".len()..]
         ),
-        r if r.starts_with("entity/bed/") => format!("entity/bed/{}", dye(&r["entity/bed/".len()..])),
+        r if r.starts_with("entity/bed/") => {
+            format!("entity/bed/{}", dye(&r["entity/bed/".len()..]))
+        }
         _ => rest,
     })
 }
@@ -239,6 +249,36 @@ fn glow_png(png_bytes: &[u8]) -> Option<Vec<u8>> {
             any = true;
         } else {
             px.copy_from_slice(&[0, 0, 0, 0]);
+        }
+    }
+    any.then(|| {
+        encode_png(&Image {
+            width: info.width,
+            height: info.height,
+            rgba: pixels.to_vec(),
+        })
+    })
+    .flatten()
+}
+
+/// The texture as an emissive material draws it: its alpha is how much a texel glows, not how
+/// see-through it is, so every texel that is not clear is opaque. `None` when the texture has no
+/// texel between clear and opaque (it is drawn as it is).
+fn solid_png(png_bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let pixels = &mut buf[..info.buffer_size()];
+    let mut any = false;
+    for px in pixels.chunks_exact_mut(4) {
+        if (1..255).contains(&px[3]) {
+            px[3] = 255;
+            any = true;
         }
     }
     any.then(|| {
@@ -542,7 +582,10 @@ pub fn to_java(pack: &Pack, out: &Path, format: (i64, i64)) -> Result<Report> {
         if !wanted {
             continue;
         }
-        write(&out.join(format!("{DATA_DIR}/{p}")), &pack.read(&p)?)?;
+        write(
+            &out.join(format!("{DATA_DIR}/{}/{p}", namespace(pack))),
+            &pack.read(&p)?,
+        )?;
         report.data_files += 1;
     }
     // Textures.
@@ -565,6 +608,14 @@ pub fn to_java(pack: &Pack, out: &Path, format: (i64, i64)) -> Result<Report> {
                         &glow,
                     )?;
                 }
+                // The same texture with those texels opaque: what an emissive material shows
+                // under the glow.
+                if let Some(solid) = texture_png(pack, &t, false).and_then(|b| solid_png(&b)) {
+                    write(
+                        &out.join(format!("assets/minecraft/textures/{name}_solid.png")),
+                        &solid,
+                    )?;
+                }
             }
             None => report.missing_textures += 1,
         }
@@ -583,12 +634,17 @@ fn convert_world(pack: &Pack, out: &Path, report: &mut Report) -> Result<()> {
             continue;
         };
         let name = stem.to_ascii_lowercase();
-        let target = if let Some(n) = name.strip_prefix("textures/blocks/").or_else(|| name.strip_prefix("textures/items/")) {
+        let target = if let Some(n) = name
+            .strip_prefix("textures/blocks/")
+            .or_else(|| name.strip_prefix("textures/items/"))
+        {
             // Only the files straight in the folder: the folders under it are the pack's own.
             if n.contains('/') {
                 continue;
             }
-            let java = java_texture(&name).filter(|j| j.starts_with("block/") || j.starts_with("item/") || j.starts_with("entity/"));
+            let java = java_texture(&name).filter(|j| {
+                j.starts_with("block/") || j.starts_with("item/") || j.starts_with("entity/")
+            });
             match java {
                 Some(j) => j,
                 None => continue,
@@ -637,30 +693,39 @@ fn convert_world(pack: &Pack, out: &Path, report: &mut Report) -> Result<()> {
     Ok(())
 }
 
+/// The folder under `assets/horizon_bedrock/` that holds one pack's data: its UUID, so that
+/// packs stacked in the game (the overlay merges by path, last wins) never replace each other's
+/// `materials/entity.material` or `sounds.json`.
+pub fn namespace(pack: &Pack) -> String {
+    let id: String = pack
+        .manifest()
+        .uuid
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    if id.is_empty() { "pack".to_owned() } else { id }
+}
+
 /// The pack's settings, labels looked up in its language file (`en_US`, else the first one),
-/// added to those an earlier pack of the same add-on left.
+/// in the pack's own folder.
 fn convert_settings(pack: &Pack, out: &Path) -> Result<()> {
     let defs = crate::settings::of_pack(pack);
     if defs.is_empty() {
         return Ok(());
     }
-    let target = out.join(format!("{DATA_DIR}/{}", crate::settings::FILE));
-    let mut all = fs::read(&target)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .map(|v| crate::settings::from_json(&v))
-        .unwrap_or_default();
-    all.retain(|d| !defs.iter().any(|n| n.name == d.name));
-    all.extend(defs);
     write(
-        &target,
-        crate::settings::to_json(&all).to_string().as_bytes(),
+        &out.join(format!(
+            "{DATA_DIR}/{}/{}",
+            namespace(pack),
+            crate::settings::FILE
+        )),
+        crate::settings::to_json(&defs).to_string().as_bytes(),
     )
 }
 
 /// Bumped whenever the conversion's output changes, so packs converted by an older engine
 /// convert again instead of coming out of the cache.
-pub const CONVERTER_REVISION: u64 = 4;
+pub const CONVERTER_REVISION: u64 = 7;
 
 /// A folder name for a converted pack: stable for the same input, different for others.
 pub fn cache_name(source: &Path, modified_secs: u64, size: u64) -> PathBuf {
@@ -697,8 +762,14 @@ mod tests {
     fn vanilla_textures_map_to_the_games_sprites() {
         let j = |t: &str| java_texture(t).unwrap();
         assert_eq!(j("textures/blocks/stone"), "block/stone");
-        assert_eq!(j("textures/blocks/wool_colored_silver"), "block/light_gray_wool");
-        assert_eq!(j("textures/blocks/hardened_clay_stained_red"), "block/red_terracotta");
+        assert_eq!(
+            j("textures/blocks/wool_colored_silver"),
+            "block/light_gray_wool"
+        );
+        assert_eq!(
+            j("textures/blocks/hardened_clay_stained_red"),
+            "block/red_terracotta"
+        );
         assert_eq!(j("textures/blocks/stone_andesite"), "block/andesite");
         assert_eq!(
             j("textures/blocks/angler_pottery_pattern"),
@@ -708,21 +779,72 @@ mod tests {
         assert_eq!(j("textures/items/gold_pickaxe"), "item/golden_pickaxe");
         assert_eq!(j("textures/items/diamond_axe"), "item/diamond_axe");
         assert_eq!(j("textures/entity/bed/silver"), "entity/bed/light_gray");
-        assert_eq!(j("textures/entity/skulls/zombie.png"), "entity/zombie/zombie");
+        assert_eq!(
+            j("textures/entity/skulls/zombie.png"),
+            "entity/zombie/zombie"
+        );
         assert_eq!(
             j("textures/entity/villager2/levels/level_iron"),
             "entity/villager/profession_level/iron"
         );
-        assert_eq!(j("textures/models/armor/chain_1"), "entity/equipment/humanoid/chainmail");
-        assert_eq!(j("textures/models/armor/iron_2"), "entity/equipment/humanoid_leggings/iron");
-        assert_eq!(j("textures/models/armor/elytra"), "entity/equipment/wings/elytra");
+        assert_eq!(
+            j("textures/models/armor/chain_1"),
+            "entity/equipment/humanoid/chainmail"
+        );
+        assert_eq!(
+            j("textures/models/armor/iron_2"),
+            "entity/equipment/humanoid_leggings/iron"
+        );
+        assert_eq!(
+            j("textures/models/armor/elytra"),
+            "entity/equipment/wings/elytra"
+        );
         assert_eq!(java_texture("ui/x"), None);
+    }
+
+    #[test]
+    fn the_solid_texture_makes_every_texel_that_is_not_clear_opaque() {
+        let eyes = encode_png(&Image {
+            width: 2,
+            height: 2,
+            rgba: vec![
+                1, 2, 3, 0, //
+                4, 5, 6, 157, //
+                7, 8, 9, 255, //
+                10, 11, 12, 2,
+            ],
+        })
+        .unwrap();
+        let out = solid_png(&eyes).unwrap();
+        let mut reader = png::Decoder::new(std::io::Cursor::new(out))
+            .read_info()
+            .unwrap();
+        let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+        reader.next_frame(&mut buf).unwrap();
+        let alpha: Vec<u8> = buf.chunks_exact(4).map(|p| p[3]).collect();
+        assert_eq!(alpha, [0, 255, 255, 255]);
+        assert!(
+            solid_png(
+                &encode_png(&Image {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 0, 0, 255]
+                })
+                .unwrap()
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn the_glow_holds_only_the_texels_less_than_opaque() {
         let png = |px: [[u8; 4]; 4]| {
-            encode_png(&Image { width: 2, height: 2, rgba: px.concat() }).unwrap()
+            encode_png(&Image {
+                width: 2,
+                height: 2,
+                rgba: px.concat(),
+            })
+            .unwrap()
         };
         let solid = png([[9, 9, 9, 255]; 4]);
         assert!(glow_png(&solid).is_none());
@@ -736,10 +858,15 @@ mod tests {
     }
 
     fn decode_png_for_test(b: &[u8]) -> Vec<[u8; 4]> {
-        let mut r = png::Decoder::new(std::io::Cursor::new(b)).read_info().unwrap();
+        let mut r = png::Decoder::new(std::io::Cursor::new(b))
+            .read_info()
+            .unwrap();
         let mut buf = vec![0; r.output_buffer_size().unwrap()];
         let i = r.next_frame(&mut buf).unwrap();
-        buf[..i.buffer_size()].chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect()
+        buf[..i.buffer_size()]
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2], c[3]])
+            .collect()
     }
 
     #[test]
@@ -892,6 +1019,7 @@ mod tests {
         let out = tmp("out");
         let pack = Pack::open(&src).unwrap();
         let r = to_java(&pack, &out, (64, 0)).unwrap();
+        let ns = namespace(&pack);
         let meta: Value =
             serde_json::from_slice(&fs::read(out.join("pack.mcmeta")).unwrap()).unwrap();
         assert_eq!(meta["pack"]["min_format"], json!([64, 0]));
@@ -917,22 +1045,22 @@ mod tests {
         assert_eq!((r.textures, r.missing_textures), (3, 1));
         // Data copied as is.
         assert!(
-            out.join("assets/horizon_bedrock/entity/zombie.entity.json")
+            out.join(format!("assets/horizon_bedrock/{ns}/entity/zombie.entity.json"))
                 .exists()
         );
         assert!(
-            out.join("assets/horizon_bedrock/animations/a.animation.json")
+            out.join(format!("assets/horizon_bedrock/{ns}/animations/a.animation.json"))
                 .exists()
         );
         assert!(
-            out.join("assets/horizon_bedrock/models/entity/m.geo.json")
+            out.join(format!("assets/horizon_bedrock/{ns}/models/entity/m.geo.json"))
                 .exists()
         );
         assert!(
-            out.join("assets/horizon_bedrock/sounds/sound_definitions.json")
+            out.join(format!("assets/horizon_bedrock/{ns}/sounds/sound_definitions.json"))
                 .exists()
         );
-        assert!(!out.join("assets/horizon_bedrock/texts/en_US.lang").exists());
+        assert!(!out.join(format!("assets/horizon_bedrock/{ns}/texts/en_US.lang")).exists());
         // Sounds: per namespace, Java names, averaged ranges, wav skipped.
         let sj: Value =
             serde_json::from_slice(&fs::read(out.join("assets/demo/sounds.json")).unwrap())

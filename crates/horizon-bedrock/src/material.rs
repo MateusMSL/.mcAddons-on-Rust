@@ -15,6 +15,9 @@ pub struct MaterialFlags {
     pub additive: bool,
     /// Drawn at full brightness.
     pub emissive: bool,
+    /// The texture's alpha is how much a texel glows (`entity_emissive*`, `EMISSIVE`), not how
+    /// see-through it is: the surface itself is opaque.
+    pub emissive_alpha: bool,
     pub double_sided: bool,
     /// Scrolls the texture as the render controller's `uv_anim` says.
     pub uv_anim: bool,
@@ -159,6 +162,7 @@ impl Materials {
         f.uv_anim |= defines.contains("USE_UV_ANIM");
         f.blend |= states.contains("Blending");
         f.emissive |= defines.contains("EMISSIVE") || defines.contains("USE_EMISSIVE");
+        f.emissive_alpha |= defines.contains("EMISSIVE") || defines.contains("USE_EMISSIVE");
         if states.contains("DisableCulling") {
             f.double_sided = true;
         } else if chain
@@ -169,7 +173,11 @@ impl Materials {
         }
         f.no_color = states.contains("DisableColorWrite");
         f.glint |= defines.contains("GLINT");
-        if chain.iter().any(|d| d.remove_defines.iter().any(|r| r == "GLINT")) && !defines.contains("GLINT") {
+        if chain
+            .iter()
+            .any(|d| d.remove_defines.iter().any(|r| r == "GLINT"))
+            && !defines.contains("GLINT")
+        {
             f.glint = false;
         }
         f.invert_culling = states.contains("InvertCulling");
@@ -216,6 +224,7 @@ fn vanilla(name: &str) -> MaterialFlags {
         blend: alpha_blend || has("emissive_alpha") || has("additive"),
         additive: has("additive"),
         emissive: has("emissive") || has("eyes") || has("spider_eyes"),
+        emissive_alpha: has("emissive"),
         energy_swirl: has("charged_creeper") || has("wither_armor") || has("energy_swirl"),
         uv_anim: has("charged_creeper")
             || has("creeper_armor")
@@ -280,6 +289,8 @@ mod tests {
         assert!(c.alpha_test && !c.double_sided);
         assert!(m.flags("ddd").alpha_test);
         assert!(m.flags("entity_emissive_alpha").emissive);
+        assert!(m.flags("entity_emissive_alpha").emissive_alpha);
+        assert!(!m.flags("spider_eyes").emissive_alpha);
         assert_eq!(m.flags("zombie"), MaterialFlags::default());
     }
 

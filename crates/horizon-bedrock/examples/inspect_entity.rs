@@ -3,6 +3,8 @@
 //!
 //! `cargo run --release -p horizon-bedrock --example inspect_entity -- <pack> <entity id> [name tag]`
 //!
+//! `Q=name=value,...` answers queries.
+//!
 //! `<entity id>` is a client entity identifier (`minecraft:spider`); `all` lists every id.
 
 use horizon_bedrock::animation::Library;
@@ -21,6 +23,16 @@ struct Probe {
 
 impl Host for Probe {
     fn query(&mut self, name: &str, args: &[molang::Value]) -> molang::Value {
+        // `Q=is_powered=1,swell_amount=0.5` answers those queries.
+        if let Ok(q) = std::env::var("Q") {
+            for kv in q.split(',') {
+                if let Some((k, v)) = kv.split_once('=')
+                    && k == name
+                {
+                    return molang::Value::Num(v.parse().unwrap_or(0.0));
+                }
+            }
+        }
         match name {
             "is_name_any" => {
                 molang::Value::bool(args.iter().any(

@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml">
+      <package file="$PROJECT_DIR$/crates/cargo-horizon-mod">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-anticheat">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-assets">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-bedrock">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-bench">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-bots">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-chat-filter">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-client">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-client-core">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-client-input">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-client-lib">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-client-render">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-command">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-core">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-cosmetics">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-dualsense">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-friends">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-hdr">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-items">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-mcp">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-mod-api-gen">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-mod-api-gen/dispatch-tests">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-mods">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-narrator">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-optifine">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-port-pack">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-prepare">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-protocol">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-relay">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-release-sign">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-server">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-server-files">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-shader-api">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-shaders">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-telemetry">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-theme">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-threads">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/crates/horizon-world">
+        <feature name="default" enabled="true" />
+      </package>
+      <package file="$PROJECT_DIR$/xtask">
+        <feature name="default" enabled="true" />
+      </package>
+    </cargoProject>
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="9fde0035-f60f-4d5c-9819-a4555b0d3701" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command_history.txt" beforeDir="false" afterPath="$PROJECT_DIR$/command_history.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/horizon-addons.json" beforeDir="false" afterPath="$PROJECT_DIR$/config/horizon-addons.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/examples/inspect_entity.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/examples/inspect_entity.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/bundle.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/bundle.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/convert.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/convert.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/manifest.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/manifest.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/material.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/material.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/molang/parser.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/molang/parser.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/molang/tests.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/molang/tests.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/pack.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/pack.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/settings.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/settings.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client-render/src/packs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client-render/src/packs.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client-render/src/packs/bedrock.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client-render/src/packs/bedrock.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/game/mob_blocks.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/game/mob_blocks.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/render.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/render.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/bedrock-roadmap.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock-roadmap.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/bedrock-validation.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock-validation.md" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:release" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="GzqaWOyC" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3Lf0hrgqxe7Uhr7DTSGDZ117JUO" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Cargo.Horizon - Bedrock debug.executor": "Debug",
+    "CidrDebugProfileConversion": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "bedrock-engine",
+    "ignore.virus.scanning.warn.message": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/Users/Mateus/Documents/GitHub/.mcAddons-on-Rust",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "project.structure.last.edited": "Project",
+    "project.structure.proportion": "0.0",
+    "project.structure.side.proportion": "0.0",
+    "settings.editor.selected.configurable": "language.rust"
+  }
+}]]></component>
+  <component name="RunManager" selected="Cargo.Horizon - Bedrock debug">
+    <configuration default="true" type="JetRunConfigurationType">
+      <module name=".mcAddons-on-Rust" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="KotlinStandaloneScriptRunConfigurationType">
+      <module name=".mcAddons-on-Rust" />
+      <option name="filePath" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Cargo.Bedrock - audit_pack" />
+      <item itemvalue="Cargo.Bedrock - inspect_entity" />
+      <item itemvalue="Cargo.Bedrock - list_glow" />
+      <item itemvalue="Cargo.Bedrock - probe_attach" />
+      <item itemvalue="Cargo.Bedrock - render_entity" />
+      <item itemvalue="Cargo.Bedrock - scan_pack" />
+      <item itemvalue="Cargo.Bedrock - sword_probe" />
+      <item itemvalue="Cargo.Bedrock - tests" />
+      <item itemvalue="Cargo.Bedrock - validate_install" />
+      <item itemvalue="Cargo.Horizon - Bedrock debug" />
+    </list>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-30f59d01ecdd-a203e0a19954-intellij.indexing.shared.core-IU-262.10968.63" />
+        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-IU-262.10968.63" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="9fde0035-f60f-4d5c-9819-a4555b0d3701" name="Changes" comment="" />
+      <created>1793829938507</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1793829938507</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>

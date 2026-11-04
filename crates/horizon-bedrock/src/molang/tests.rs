@@ -384,7 +384,10 @@ fn shapes_seen_in_packs() {
 fn not_binds_tighter_than_the_conditional() {
     assert_eq!(run("v.a=0; v.b=!v.a?1:2; return v.b;"), 1.0);
     assert_eq!(run("v.a=1; v.b=!v.a?1:2; return v.b;"), 2.0);
-    assert_eq!(run("v.d=!v.zz?1:(v.k?0:Math.clamp(5/0.2,0,1)); return v.d;"), 1.0);
+    assert_eq!(
+        run("v.d=!v.zz?1:(v.k?0:Math.clamp(5/0.2,0,1)); return v.d;"),
+        1.0
+    );
 }
 
 #[test]
@@ -402,6 +405,16 @@ fn any_all_and_approx_eq_are_functions_of_their_arguments() {
 #[test]
 fn a_function_without_a_result_gives_zero_not_nan() {
     assert_eq!(run("return Math.asin(2);"), 0.0);
-    assert_eq!(run("v.a=Math.lerp(0, Math.clamp(-Math.asin(3/1), -90, 90), 0.5); return v.a;"), 0.0);
+    assert_eq!(
+        run("v.a=Math.lerp(0, Math.clamp(-Math.asin(3/1), -90, 90), 0.5); return v.a;"),
+        0.0
+    );
     assert_eq!(run("return Math.sqrt(-4);"), 0.0);
+}
+
+#[test]
+fn a_parenthesis_holds_a_statement_list_worth_its_last_one() {
+    assert!(close(run("( v.a = 4; v.b = 3; v.a * v.b; )"), 12.0));
+    assert!(close(run("-( v.a = 2; v.a + 1; ) + 10"), 7.0));
+    assert!(close(run("(1)"), 1.0));
 }

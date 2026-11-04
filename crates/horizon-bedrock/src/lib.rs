@@ -55,6 +55,8 @@ pub enum Error {
     Manifest(String),
     /// A path the pack does not hold.
     Missing(String),
+    /// A pack whose files are encrypted (Marketplace content): its key is not ours to have.
+    Encrypted(String),
 }
 
 impl fmt::Display for Error {
@@ -66,6 +68,7 @@ impl fmt::Display for Error {
             Error::Archive(e) => write!(f, "brarchive: {e}"),
             Error::Manifest(e) => write!(f, "manifest: {e}"),
             Error::Missing(p) => write!(f, "not in the pack: {p}"),
+            Error::Encrypted(p) => write!(f, "encrypted pack ({p}): it cannot be read"),
         }
     }
 }

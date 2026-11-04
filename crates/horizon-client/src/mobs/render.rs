@@ -52,18 +52,18 @@ fn material_groups(
     names: &[String],
     materials: &horizon_bedrock::material::Materials,
 ) -> Vec<horizon_bedrock::material::MaterialFlags> {
-    let mut groups = vec![materials.flags(&layer.material)];
+    let mut groups = vec![super::bedrock_debug::flags(materials, &layer.material)];
     if layer.bone_materials.is_empty() {
         return groups;
     }
     groups.clear();
-    for f in names.iter().map(|n| materials.flags(layer.material_for(n))) {
+    for f in names.iter().map(|n| super::bedrock_debug::flags(materials, layer.material_for(n))) {
         if !groups.contains(&f) {
             groups.push(f);
         }
     }
     if groups.is_empty() {
-        groups.push(materials.flags(&layer.material));
+        groups.push(super::bedrock_debug::flags(materials, &layer.material));
     }
     groups
 }
@@ -1560,6 +1560,16 @@ pub fn bone_matrices(
     }
     walk(part, glam::Mat4::IDENTITY, glam::Mat4::IDENTITY, poses, out);
 }
+/// Where what is held is modelled from: the holder's bone (`rightitem`, with its whole pose) at
+/// the item's own origin. A model baked to the game's frame puts a bone modelled at the origin
+/// on the feet line, `MODEL_FEET` below the frame's origin, which this takes back (the matrices
+/// are in blocks: poses are in sixteenths).
+pub fn held_anchor(bone: glam::Mat4, scale: f32) -> glam::Mat4 {
+    bone * glam::Mat4::from_scale(glam::Vec3::splat(scale))
+        * glam::Mat4::from_translation(glam::Vec3::new(0.0, -MODEL_FEET, 0.0))
+}
+/// The feet line of a baked model, in blocks (a Java model's origin is 24 sixteenths above the feet).
+const MODEL_FEET: f32 = 24.0 / 16.0;
 /// An attachable's parts: a bone with a binding is drawn where the holder's bone it follows
 /// went (`base_of` gives that bone's matrix), the others where the attachable's own pose puts
 /// them (or not at all when the model binds some of its bones). `chain` is the matrix of the
@@ -2165,8 +2175,13 @@ const BEDROCK_LAYER_BIAS: f32 = 0.002;
 /// each layer drew and where the model's lowest point is (`feet` is 1.501 when it stands on the
 /// mob's feet, the same as a vanilla model).
 fn bedrock_debug() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("HORIZON_BEDROCK_DEBUG").is_some())
+    super::bedrock_debug::debug()
+}
+
+/// `HORIZON_BEDROCK_HIDE=crv,bkj`: layers whose texture ends with one of these names are not
+/// drawn, to tell which layer of a model makes what is seen.
+fn hidden_layer(texture: &str) -> bool {
+    super::bedrock_debug::settings().hides(texture)
 }
 
 fn log_bedrock_once(key: String, line: impl FnOnce() -> String) {
@@ -2269,6 +2284,9 @@ fn render_bedrock(
         {
             continue;
         }
+        if hidden_layer(&layer.texture) {
+            continue;
+        }
         let found = atlas(&layer.texture);
         let Some(uv) = found.or_else(|| layer.fallback.as_deref().and_then(atlas)) else {
             if bedrock_debug() {
@@ -2305,11 +2323,10 @@ fn render_bedrock(
             }
             if groups.len() > 1 {
                 for name in &layer.built.names {
-                    if bedrock
-                        .bundle()
-                        .materials
-                        .flags(layer.layer.material_for(name))
-                        != *group
+                    if super::bedrock_debug::flags(
+                        &bedrock.bundle().materials,
+                        layer.layer.material_for(name),
+                    ) != *group
                     {
                         // Its own cubes only: a child with another material still draws, in
                         // its own pass (a slime's outer shell hangs under a bone of another look).
@@ -2334,6 +2351,15 @@ fn render_bedrock(
                 atlas(&format!("{}_glow", layer.texture))
             } else {
                 None
+            };
+            // Its alpha is how much a texel glows, not how see-through the model is: the model
+            // is drawn from the texture with those texels opaque.
+            // (A material that also blends or adds, an eye's soft glow, keeps its alpha: there it
+            // is how see-through the glow is.)
+            let uv = if flags.emissive_alpha && !flags.blend && !flags.additive && found.is_some() {
+                atlas(&format!("{}_solid", layer.texture)).unwrap_or(uv)
+            } else {
+                uv
             };
             let drawn_light = if layer.layer.ignore_lighting {
                 FULL_BRIGHT
@@ -2444,6 +2470,26 @@ fn render_bedrock(
                 layer.layer.secondary,
                 layer.layer.color[3] < 1.0,
             );
+            if bedrock_debug()
+                && let Some(v) = out[start..].first()
+            {
+                let (id, bits) = (m.kind.id.clone(), v.layer);
+                log_bedrock_once(format!("{id}/tag/{}/{}", layer.layer.geometry, layer.texture), || {
+                    format!(
+                        "{id}: layer {} {} draws as oit={} no_depth_write={} no_depth_test={} blend={} emissive={} stencil_write={} stencil_not_equal={} color_alpha={}",
+                        layer.layer.geometry,
+                        layer.texture,
+                        bits & crate::gfx::OIT_ENTITY != 0,
+                        bits & crate::gfx::NO_DEPTH_WRITE != 0,
+                        bits & crate::gfx::NO_DEPTH_TEST != 0,
+                        flags.blend,
+                        flags.emissive,
+                        flags.stencil_write,
+                        flags.stencil_not_equal,
+                        layer.layer.color[3],
+                    )
+                });
+            }
             if let Some(glow) = glow {
                 let from = out.len();
                 draw(
@@ -2510,7 +2556,16 @@ fn render_bedrock(
                 None => return None,
             };
             let (now, rest) = holder.get(target)?;
-            Some(base * *now * glam::Mat4::from_scale(glam::Vec3::splat(hand_scale)) * rest.inverse())
+            let held = glam::Mat4::from_scale(glam::Vec3::splat(hand_scale));
+            // What is held is modelled around its own origin, which the game puts on the
+            // hand's bone (`rightitem`, a locator at the grip): the bone's whole pose, pivot
+            // and all. Worn pieces are modelled where they sit on the holder (a helmet over
+            // the head), so they only follow the bone's change from rest.
+            Some(if in_hand && att.binds.contains_key(bone) {
+                base * held_anchor(*now, hand_scale)
+            } else {
+                base * *now * held * rest.inverse()
+            })
         };
         let mut layers_on = 0usize;
         for layer in &att.layers {
@@ -2529,7 +2584,13 @@ fn render_bedrock(
                     poses.visible(name, false);
                 }
             }
-            let flags = bedrock.bundle().materials.flags(&layer.layer.material);
+            let flags =
+                super::bedrock_debug::flags(&bedrock.bundle().materials, &layer.layer.material);
+            let uv = if flags.emissive_alpha && !flags.blend && !flags.additive {
+                atlas(&format!("{}_solid", layer.texture)).unwrap_or(uv)
+            } else {
+                uv
+            };
             let drawn_light = if layer.layer.ignore_lighting
                 || flags.emissive
                 || (in_hand && frame.held.full_bright)
@@ -2572,10 +2633,24 @@ fn render_bedrock(
             if bedrock_debug() {
                 let vertices = out.len() - start;
                 let (id, item) = (m.kind.id.clone(), att.slot);
+                // Where the item is, in blocks from the mob's feet (the world's axes).
+                let feet = base.w_axis.truncate();
+                let (mut lo, mut hi) = (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
+                for v in &out[start..] {
+                    let p = glam::Vec3::from_array(v.pos) - feet;
+                    lo = lo.min(p);
+                    hi = hi.max(p);
+                }
+                let hand = att
+                    .binds
+                    .values()
+                    .find_map(|b| holder.get(b.as_str()))
+                    .map(|(now, _)| (base * *now).w_axis.truncate() - feet);
                 log_bedrock_once(format!("{id}/{item}/{}", layer.layer.geometry), || {
                     format!(
-                        "{id}: {item} draws {} with {vertices} vertices (bound to {:?}; holder lacks {:?})",
+                        "{id}: {item} draws {} with {vertices} vertices, from the feet: x {:.2}..{:.2} y {:.2}..{:.2} z {:.2}..{:.2}, hand bone at {hand:.2?} (bound to {:?}; holder lacks {:?})",
                         layer.layer.geometry,
+                        lo.x, hi.x, lo.y, hi.y, lo.z, hi.z,
                         att.binds,
                         att.binds
                             .values()
@@ -2590,6 +2665,41 @@ fn render_bedrock(
                 layer.layer.secondary,
                 layer.layer.color[3] < 1.0,
             );
+            if bedrock_debug() && in_hand && out.len() > start {
+                // Where the held item sits, in the model's own frame (pixels; the model's
+                // origin is 24 above the feet, y grows downward): the box of its vertices and
+                // the bones of the holder it follows.
+                let inverse = base.inverse();
+                let (mut lo, mut hi) = (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
+                for v in &out[start..] {
+                    let p = inverse.transform_point3(glam::Vec3::from_array(v.pos)) * 16.0;
+                    lo = lo.min(p);
+                    hi = hi.max(p);
+                }
+                let anchors: Vec<String> = att
+                    .binds
+                    .values()
+                    .filter_map(|b| {
+                        holder.get(b).map(|(now, _)| {
+                            let p = now.transform_point3(glam::Vec3::ZERO);
+                            format!("{b} at [{:.1}, {:.1}, {:.1}]", p.x, p.y, p.z)
+                        })
+                    })
+                    .collect();
+                let (id, item) = (m.kind.id.clone(), att.slot);
+                log_bedrock_once(
+                    format!("{id}/{item}/{}/at", layer.layer.geometry),
+                    || {
+                        format!(
+                            "{id}: {item} {} box x {:.1}..{:.1} y {:.1}..{:.1} z {:.1}..{:.1} (px, feet at y 24); holder {}; scale {}",
+                            layer.layer.geometry,
+                            lo.x, hi.x, lo.y, hi.y, lo.z, hi.z,
+                            anchors.join(", "),
+                            hand_scale
+                        )
+                    },
+                );
+            }
         }
     }
     // A body the pack laid down rests on the ground and, as the fall ends, on the spot where the
@@ -3300,6 +3410,15 @@ fn bedrock_hand(
         }
     }
     None
+}
+/// Whether a pack's attachable draws the item in a hand of the mob, in place of the game's own
+/// model of it.
+pub fn held_item_replaced(m: &Mob, data: &MobData, off_hand: bool) -> bool {
+    data.bedrock
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .held(m)
+        .is_some_and(|h| if off_hand { h.off_replaced } else { h.main_replaced })
 }
 /// The pose a mob's held item is submitted under (`ItemInHandLayer`:
 /// `translateToHand`, then the hand offset; the item model adds its own

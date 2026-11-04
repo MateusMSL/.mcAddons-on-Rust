@@ -272,10 +272,22 @@ impl Parser {
             Tok::Num(n) => Ok(Expr::Num(n)),
             Tok::Str(s) => Ok(Expr::Str(Arc::from(s.as_str()))),
             Tok::LParen => {
-                // Packs assign inside parentheses: `cond ? (v.a = 1)`.
-                let e = self.assign()?;
+                // Packs assign inside parentheses: `cond ? (v.a = 1)`, and Blockbench writes
+                // whole statement lists there: `( v.a = 4; v.b = 2; v.a * v.b; )`, which is
+                // worth its last statement.
+                let mut list = vec![self.assign()?];
+                while self.eat(&Tok::Semi) {
+                    if self.peek() == Some(&Tok::RParen) {
+                        break;
+                    }
+                    list.push(self.assign()?);
+                }
                 self.expect(Tok::RParen, ")")?;
-                Ok(e)
+                if list.len() == 1 {
+                    Ok(list.pop().unwrap())
+                } else {
+                    Ok(Expr::Block(list.into_boxed_slice()))
+                }
             }
             Tok::LBrace => {
                 self.pos -= 1;

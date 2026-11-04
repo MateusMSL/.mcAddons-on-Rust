@@ -15,6 +15,11 @@ Números do pack: 128 client entities, 1642 attachables, 3492 animações, 693 g
 - [ ] Tela **Settings** com os 18 itens (10 dropdowns/multiselects e 8 toggles) e **Done** recarrega
 - [ ] `config/horizon-addons.json` guarda a escolha
 - [ ] Log sem `Bedrock file ... does not parse`
+- [x] (offline) pasta, `.mcpack`, zip com pasta, `.mcaddon` (RP+BP e `.mcpack` aninhado), `.mcworld`, `.mctemplate`, nomes com `\\`: mesma conversão (`validate_install`: 116 entities, 1641 attachables, 6284 arquivos)
+- [x] (offline, arquivos reais) A&S `.mcpack`: 116 entities, 1641 attachables, 3660 geometrias, 18 settings; Naturalist `.mcaddon` (RP + BP): BP ignorado, 135 entities, 7 attachables, 166 geometrias
+- [ ] Jogo: pack em `.mcpack`, `.mcaddon` e `.mcworld` na pasta `resourcepacks` aparece e ativa
+- [ ] Jogo: dois packs Bedrock ativos juntos; o de cima vence; cada um com os próprios Settings
+- [ ] Jogo: pack criptografado ou com dependência faltando → aviso no `latest.log`, jogo abre
 
 ## Mobs (128 client entities)
 
@@ -69,6 +74,7 @@ Marcar por grupo; anotar a entidade que falhar.
 - [x] Textura nova do item (`textures/items`)
 - [~] 3ª pessoa: espada e lança aparecem na mão; posição bugada depois da v24
 - [ ] **1ª pessoa**: item e mão com o modelo do pack (hoje só o sprite novo)
+- [~] Item na mão em F5 mostrava o item do jogo e o do pack: v30 esconde o do jogo quando há attachable; posição do attachable pendente
 - [ ] Pose do braço segurando (`oreville_mainhand_custom_pos`, `hold_up`)
 - [ ] Mão esquerda (`leftitem`) e off hand
 - [ ] Pickaxe, axe, shovel, hoe, bow, crossbow, trident, shield, fishing rod, bucket, shears
@@ -104,7 +110,8 @@ Marcar por grupo; anotar a entidade que falhar.
 ## Materiais
 
 - [x] Alpha test e emissivo (`_glow`): olhos do allay, aranha, enderman
-- [ ] Blend e aditivo: creeper carregado, vidro, água
+- [~] Blend e aditivo: creeper carregado (corpo translúcido: v30 usa textura sólida), vidro, água
+- [~] Fogo/lava com materiais `DisableDepthWrite` (camadas em fatias, v29): conferir
 - [ ] Stencil (contorno)
 - [ ] Glint em item e armadura
 - [ ] `DisableDepthWrite`/`Test` e multitexture (desenhados em v29; conferir no jogo: xp_orb do A&S usa depth write off)
@@ -115,3 +122,9 @@ Marcar por grupo; anotar a entidade que falhar.
 2. Print + trecho do log.
 3. Linha deste checklist com `[~]` e nota curta.
 4. Ao corrigir: build, o que mudou, resultado.
+
+## Depuração sem recompilar
+
+- Arquivo `bedrock-debug.json` na pasta do jogo (`%APPDATA%\horizon`; `HORIZON_BEDROCK_DEBUG_FILE` troca). Com `HORIZON_BEDROCK_DEBUG=1` e sem arquivo, um modelo é escrito. Salvar recarrega em até 1 s; o log mostra `bedrock-debug: loaded ...`; chave desconhecida ou JSON inválido: aviso no log, valores anteriores ficam.
+- `hide`: sufixos de textura que não desenham. `dump` / `dump_vars`: ids e variáveis `v.*` logados. `materials`: `{"oreville_auulis": {"additive": false}}` força flag por nome (`*` = todos). `queries`: `{"is_powered": 1}` fixa `query.x` para todo mob.
+- IntelliJ/RustRover: pasta `.run/` (Run/Debug direto no código, breakpoints). `$Prompt$` pergunta o caminho do pack.
