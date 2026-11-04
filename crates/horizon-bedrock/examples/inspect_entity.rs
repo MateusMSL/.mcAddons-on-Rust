@@ -44,7 +44,10 @@ fn main() {
     let pack = Pack::open(Path::new(pack_path)).expect("pack");
     let mut lib = Library::default();
     let mut rcs = HashMap::new();
-    let mut geos: HashMap<String, geometry::Geometry> = HashMap::new();
+    // What the game gives every pack, under the pack's own files.
+    let mut builtin = horizon_bedrock::bundle::Bundle::default();
+    builtin.add_builtins();
+    let mut geos: HashMap<String, geometry::Geometry> = builtin.geometries;
     let mut defs = Vec::new();
     let mut mats = Materials::default();
     for p in pack.paths().map(str::to_owned).collect::<Vec<_>>() {

@@ -261,4 +261,32 @@ mod tests {
         assert!(Bundle::load(&src.join("nothing")).is_empty());
         let _ = fs::remove_dir_all(&src);
     }
+
+    #[test]
+    fn the_game_gives_the_fang_and_the_bed_their_geometries() {
+        let mut b = Bundle::default();
+        b.add_builtins();
+        let fang = &b.geometries["geometry.evocation_fang"];
+        let (upper, lower) = (
+            fang.bone("upper_jaw").unwrap(),
+            fang.bone("lower_jaw").unwrap(),
+        );
+        // The base is the column under the ground; the jaws, side by side, stand on it
+        // inside its footprint, the second turned half way round its pivot.
+        let (u, l) = (&upper.cubes[0], &lower.cubes[0]);
+        let base = &fang.bone("base").unwrap().cubes[0];
+        assert_eq!(base.origin[1] + base.size[1], 0.0);
+        assert_eq!(lower.rotation, [0.0, 180.0, 0.0]);
+        let turned = |c: &crate::geometry::Cube, axis: usize| {
+            let p = lower.pivot[axis];
+            [2.0 * p - (c.origin[axis] + c.size[axis]), 2.0 * p - c.origin[axis]]
+        };
+        assert_eq!(turned(l, 0), [-2.5, 1.5]);
+        assert_eq!(turned(l, 2), [-4.0, 4.0]);
+        assert_eq!([u.origin[0], u.origin[0] + u.size[0]], [-1.5, 2.5]);
+        assert_eq!(fang.texture_size, [64.0, 32.0]);
+        let bed = &b.geometries["geometry.bed"];
+        let cubes: usize = bed.bones.iter().map(|b| b.cubes.len()).sum();
+        assert_eq!(cubes, 6);
+    }
 }

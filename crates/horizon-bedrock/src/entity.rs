@@ -366,6 +366,9 @@ pub struct Layer {
     pub uv_anim: Option<([f32; 2], [f32; 2])>,
     /// `filter_lighting`: every face takes the same light, whichever way it points.
     pub flat_lighting: bool,
+    /// Not the first of the render controller's textures: a multitexture material lays it
+    /// over the ones before it.
+    pub secondary: bool,
 }
 
 impl Layer {
@@ -986,7 +989,7 @@ impl Instance {
             .as_ref()
             .is_some_and(|p| env.run(p, Scope::default(), Value::Null).truthy());
         let start = out.len();
-        for t in &rc.textures {
+        for (index, t) in rc.textures.iter().enumerate() {
             let v = run(host, &mut self.vars, &mut self.rng, t);
             let Some(texture) = name_of(&v).and_then(|k| def.textures.get(&k).cloned()) else {
                 continue;
@@ -1004,6 +1007,7 @@ impl Instance {
                 light_multiplier,
                 uv_anim,
                 flat_lighting: rc.filter_lighting,
+                secondary: index > 0,
             });
         }
         // The flat sprites the model's bones show, each in the texture it names.
@@ -1014,6 +1018,7 @@ impl Instance {
                     out.push(Layer {
                         geometry: id,
                         texture: path.clone(),
+                        secondary: false,
                         ..first.clone()
                     });
                 }
@@ -1342,6 +1347,7 @@ mod tests {
             light_multiplier: 1.0,
             uv_anim: None,
             flat_lighting: false,
+            secondary: false,
         };
         assert_eq!(layer.tint(), [0.75, 0.75, 0.75, 0.5]);
         layer.hurt_overlay = true;

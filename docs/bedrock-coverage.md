@@ -93,9 +93,9 @@ prints the same offline.
 | `variable.*` of vanilla resources (`attack_time`, `is_paperdoll`, `is_holding_left/right`, `player_x_rotation`, ...) | ✔ set before the pack's scripts run |
 | Vanilla animations a pack names without defining (`baby_transform`, `humanoid.big_head`, `riding.*`, `elytra.*`, `bee.no_stinger`, flops) | ✔ built in; a pack's own definition wins |
 | Vanilla render controllers (`controller.render.default`, `armor`, `item_default`) | ✔ built in |
-| Vanilla geometries (`humanoid.custom`, `customSlim`, `cape`, `elytra`, `shield`) | ✔ built in; `bed`, `evocation_fang` not yet |
+| Vanilla geometries (`humanoid.custom`, `customSlim`, `cape`, `elytra`, `shield`, `evocation_fang`, `bed`) | ✔ built in (`evocation_fang` with its `bite` animation; the bed's UV is unchecked) |
 | Vanilla textures a pack names without shipping (`textures/blocks`, `items`, `models/armor`, bed, skulls, villager levels) | ✔ mapped to the game's sprites |
-| Materials: `GLINT`, `InvertCulling`, `DisableDepthWrite/Test`, `MASKED_MULTITEXTURE` (flags read) | ✔ glint and culling inversion drawn; depth flags and multitexture read, not yet drawn |
+| Materials: `GLINT`, `InvertCulling`, `DisableDepthWrite/Test`, `MASKED_MULTITEXTURE` (flags read) | ✔ glint, culling inversion, depth write off, depth test off (own pipelines) and multitexture (the second texture laid over the first, blended) drawn |
 | Players and mannequins | ✔ the pack's player entity on the game's skin and slim model (`HORIZON_BEDROCK_PLAYERS=off` to turn off); the pack draws the armour |
 | Blocks and items the pack retextures (`textures/blocks/<name>`, `items/<name>`), sky, colour maps, `splashes.json` | ✔ written as Java resources |
 

@@ -272,6 +272,43 @@
      ]
     }
    }
+  },
+  "animation.evocation_fang.bite": {
+   "loop": "hold_on_last_frame",
+   "animation_length": 1.0,
+   "bones": {
+    "base": {
+     "position": [
+      0,
+      "v.animation_progress=Math.clamp(q.anim_time,0,1); return (Math.clamp(q.anim_time,0,1)+Math.sin(Math.clamp(q.anim_time,0,1)*154.7))*7.2;",
+      0
+     ]
+    },
+    "upper_jaw": {
+     "position": [
+      0,
+      "(Math.clamp(q.anim_time,0,1)+Math.sin(Math.clamp(q.anim_time,0,1)*154.7))*7.2",
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      "-63*(1-Math.min(Math.clamp(q.anim_time,0,1)*2,1)*Math.min(Math.clamp(q.anim_time,0,1)*2,1))*(1-Math.min(Math.clamp(q.anim_time,0,1)*2,1)*Math.min(Math.clamp(q.anim_time,0,1)*2,1))"
+     ]
+    },
+    "lower_jaw": {
+     "position": [
+      0,
+      "(Math.clamp(q.anim_time,0,1)+Math.sin(Math.clamp(q.anim_time,0,1)*154.7))*7.2",
+      0
+     ],
+     "rotation": [
+      0,
+      0,
+      "63*(1-Math.min(Math.clamp(q.anim_time,0,1)*2,1)*Math.min(Math.clamp(q.anim_time,0,1)*2,1))*(1-Math.min(Math.clamp(q.anim_time,0,1)*2,1)*Math.min(Math.clamp(q.anim_time,0,1)*2,1))"
+     ]
+    }
+   }
   }
  }
 }

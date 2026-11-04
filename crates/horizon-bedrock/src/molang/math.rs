@@ -148,8 +148,15 @@ impl MathFn {
         Some(MathFn::Ease(kind, mode))
     }
 
-    /// Calls the function; missing arguments are 0.
+    /// Calls the function; missing arguments are 0, and a result that is not a number (the
+    /// arcsine of 2, the root of -1) is 0 like a division by zero: a NaN stored in a variable
+    /// would otherwise stay there and unpose every bone that reads it.
     pub fn call(self, args: &[f32], rng: &mut Rng) -> f32 {
+        let r = self.call_raw(args, rng);
+        if r.is_nan() { 0.0 } else { r }
+    }
+
+    fn call_raw(self, args: &[f32], rng: &mut Rng) -> f32 {
         use MathFn::*;
         let a = |i: usize| args.get(i).copied().unwrap_or(0.0);
         let rad = PI / 180.0;

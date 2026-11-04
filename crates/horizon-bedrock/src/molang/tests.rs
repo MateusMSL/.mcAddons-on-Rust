@@ -398,3 +398,10 @@ fn any_all_and_approx_eq_are_functions_of_their_arguments() {
     assert_eq!(run("q.all(2, 2, 3)"), 0.0);
     assert_eq!(run("q.approx_eq(1, 1.0000001)"), 1.0);
 }
+
+#[test]
+fn a_function_without_a_result_gives_zero_not_nan() {
+    assert_eq!(run("return Math.asin(2);"), 0.0);
+    assert_eq!(run("v.a=Math.lerp(0, Math.clamp(-Math.asin(3/1), -90, 90), 0.5); return v.a;"), 0.0);
+    assert_eq!(run("return Math.sqrt(-4);"), 0.0);
+}

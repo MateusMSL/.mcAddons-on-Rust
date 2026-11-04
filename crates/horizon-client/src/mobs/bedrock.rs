@@ -356,7 +356,7 @@ fn item_frame(m: &Mob, item: &str) -> f32 {
 fn common_query(name: &str, args: &[Value]) -> Value {
     match name {
         "is_in_ui" | "is_attached" | "is_spectator" | "is_local_player" | "is_emoting"
-        | "vertical_speed" | "mark_variant" | "get_animation_frame" | "is_in_water" => {
+        | "vertical_speed" | "mark_variant" | "get_animation_frame" | "is_in_water" | "is_swimming" => {
             Value::Num(0.0)
         }
         "is_pack_setting_enabled" => Value::bool(
@@ -453,10 +453,6 @@ fn common_query(name: &str, args: &[Value]) -> Value {
         | "rider_body_y_rotation"
         | "rider_head_x_rotation"
         | "rider_head_y_rotation"
-        | "ride_body_x_rotation"
-        | "ride_body_y_rotation"
-        | "ride_head_x_rotation"
-        | "ride_head_y_rotation"
         | "scoreboard"
         | "shield_blocking_bob"
         | "get_actor_info_id"
@@ -493,7 +489,7 @@ fn common_query(name: &str, args: &[Value]) -> Value {
 
 /// The engine's build, logged once with `HORIZON_BEDROCK_DEBUG`: tells whether the game runs the
 /// files the last overlay carried.
-pub const ENGINE_BUILD: &str = "v25-layer-bias";
+pub const ENGINE_BUILD: &str = "v29-materials-entities";
 
 /// `HORIZON_BEDROCK_DUMP=skeleton,creeper`: the kinds (by part of the id) whose state is logged
 /// once a second while within twelve blocks of the camera.
@@ -528,6 +524,12 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
         "target_x_rotation",
         "target_y_rotation",
         "modified_move_speed",
+        "modified_distance_moved",
+        "ground_speed",
+        "vertical_speed",
+        "is_swimming",
+        "is_in_water",
+        "is_sprinting",
         "is_on_ground",
         "swell_amount",
         "is_powered",
@@ -704,7 +706,7 @@ impl Host for MobHost<'_> {
         vec![
             ("attack_time", Value::Num(swing)),
             ("attack_animation_tick", Value::Num(ticks)),
-            ("is_paperdoll", Value::Num(0.0)),
+            ("is_paperdoll", Value::bool(super::cem_anim::is_in_gui())),
             ("is_holding_right", Value::bool(holds("main_hand"))),
             ("is_holding_left", Value::bool(holds("off_hand"))),
             ("player_x_rotation", Value::Num(pitch)),
@@ -728,15 +730,20 @@ impl Host for MobHost<'_> {
         let lerp = |p: f32, c: f32| p + (c - p) * a;
         match name {
             "life_time" => Value::Num((m.age as f32 + a) / 20.0),
+            "is_in_ui" => Value::bool(super::cem_anim::is_in_gui()),
             "delta_time" => Value::Num(self.dt),
             "frame_alpha" => Value::Num(a),
             "is_name_any" => Value::bool(name_matches(m.custom_name.as_deref(), args)),
             "get_name" => Value::Str(m.custom_name.as_deref().unwrap_or("").into()),
             "is_baby" => Value::bool(m.is_baby()),
             "is_on_ground" => Value::bool(m.on_ground),
-            "is_in_water" | "is_in_contact_with_water" | "is_swimming" => {
-                Value::bool(m.fluids.in_water)
-            }
+            "is_in_water" | "is_in_contact_with_water" => Value::bool(m.fluids.in_water),
+            // A player is swimming in the swimming pose (sprinting through water) or anywhere in
+            // water, which is what plays the pack's swim without the sprint; any other mob swims
+            // in water.
+            "is_swimming" => Value::bool(
+                m.fluids.in_water || m.extra.avatar_pose == crate::pose::Pose::Swimming,
+            ),
             "is_alive" => Value::bool(m.alive()),
             "health" => Value::Num(m.health),
             "max_health" => Value::Num(m.kind.max_health),
@@ -753,7 +760,18 @@ impl Host for MobHost<'_> {
                 let (dx, dz) = (m.position.x - m.previous.x, m.position.z - m.previous.z);
                 let by_velocity = (v.x * v.x + v.z * v.z).sqrt();
                 let by_moving = (dx * dx + dz * dz).sqrt();
-                Value::Num(by_velocity.max(by_moving) as f32 * 20.0)
+                let flat = by_velocity.max(by_moving);
+                // Swimming leans the body along the way it goes (`-asin(vertical_speed /
+                // ground_speed)` is the pitch only if the speed counts the climb too).
+                let speed = if m.extra.avatar_pose == crate::pose::Pose::Swimming {
+                    let dy = m.position.y - m.previous.y;
+                    let by_moving = (dx * dx + dy * dy + dz * dz).sqrt();
+                    let by_velocity = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
+                    by_velocity.max(by_moving)
+                } else {
+                    flat
+                };
+                Value::Num(speed as f32 * 20.0)
             }
             "vertical_speed" => {
                 let (v, d) = (m.velocity.y, m.position.y - m.previous.y);
@@ -764,6 +782,19 @@ impl Host for MobHost<'_> {
             // `head_y_rotation - target_y_rotation` for the body's.
             "head_y_rotation" => Value::Num(wrap_degrees(lerp(m.previous_head_yaw, m.head_yaw))),
             "head_x_rotation" => Value::Num(lerp(m.previous_head_pitch, m.head_pitch)),
+            // The mount's pose a rider takes (`passengers.rs` gives it the vehicle's yaw): 0
+            // off one.
+            "ride_body_y_rotation" if m.extra.passenger => {
+                Value::Num(wrap_degrees(lerp(m.previous_body_yaw, m.body_yaw)))
+            }
+            "ride_head_y_rotation" if m.extra.passenger => {
+                Value::Num(wrap_degrees(lerp(m.previous_head_yaw, m.head_yaw)))
+            }
+            "ride_head_x_rotation" if m.extra.passenger => {
+                Value::Num(lerp(m.previous_head_pitch, m.head_pitch))
+            }
+            "ride_body_x_rotation" | "ride_body_y_rotation" | "ride_head_x_rotation"
+            | "ride_head_y_rotation" => Value::Num(0.0),
             "position" => {
                 let axis = args.first().map_or(0.0, Value::num) as usize;
                 Value::Num([m.position.x, m.position.y, m.position.z][axis.min(2)] as f32)
@@ -1096,6 +1127,7 @@ fn item_at(m: &Mob, slot: Option<&Value>) -> Option<Arc<str>> {
                 "chest" | "torso" => Some("torso"),
                 "legs" => Some("legs"),
                 "feet" => Some("feet"),
+                "body" => Some("body"),
                 _ => None,
             })?
         }
@@ -1276,6 +1308,8 @@ fn held_items(m: &Mob) -> Vec<(&'static str, Arc<str>)> {
         ("torso", &e.chest),
         ("legs", &e.legs),
         ("feet", &e.feet),
+        // What the body slot holds: a harness, a horse's armour, a llama's carpet.
+        ("body", &e.body),
     ]
     .into_iter()
     .filter_map(|(slot, item)| Some((slot, item.clone()?)))
@@ -1297,7 +1331,7 @@ fn slot_bone(slot: &str) -> &'static str {
         "main_hand" => "rightitem",
         "off_hand" => "leftitem",
         "head" => "head",
-        "torso" => "body",
+        "torso" | "body" => "body",
         "legs" => "leftleg",
         _ => "leftleg",
     }
@@ -1311,6 +1345,7 @@ fn slot_of(name: &str) -> Option<&'static str> {
         "slot.armor.head" => "head",
         "slot.armor.chest" => "torso",
         "slot.armor.legs" => "legs",
+        "slot.armor.body" => "body",
         "slot.armor.feet" => "feet",
         _ => return None,
     })
@@ -1427,8 +1462,36 @@ fn bedrock_id(java: &str) -> Option<&'static str> {
 /// The invisible part above a geometry's bones.
 const ROOT: &str = "<root>";
 
+/// Draws a face's texels from inside its rectangle: a pack's face edges sit on texel borders (or
+/// between texels, with fractional sizes), and a sample taken right on one picks the neighbour's
+/// colour, a thin line along the edge. Each edge moves a twentieth of a texel inward (more than the half pixel a multisampled edge reaches past it up close).
+fn inset_uv(vertices: &mut [[f32; 5]; 4], texture: [f32; 2]) {
+    const INSET: f32 = 0.05;
+    for axis in 0..2 {
+        let size = texture[axis].max(1.0);
+        let i = 3 + axis;
+        let (lo, hi) = vertices
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[i]), hi.max(v[i])));
+        let span = (hi - lo) * size;
+        let step = INSET.min(span * 0.25) / size;
+        let mid = (lo + hi) / 2.0;
+        for v in vertices.iter_mut() {
+            if v[i] <= lo + f32::EPSILON {
+                v[i] += step;
+            } else if v[i] >= hi - f32::EPSILON {
+                v[i] -= step;
+            } else if v[i] < mid {
+                v[i] += step;
+            } else {
+                v[i] -= step;
+            }
+        }
+    }
+}
+
 fn bake(g: &Geometry) -> Built {
-    fn convert(p: geometry::Part, names: &mut Vec<String>) -> Part {
+    fn convert(p: geometry::Part, names: &mut Vec<String>, texture: [f32; 2]) -> Part {
         let name = p.name.to_ascii_lowercase();
         names.push(name.clone());
         let polygons = if p.never_render {
@@ -1436,10 +1499,13 @@ fn bake(g: &Geometry) -> Built {
         } else {
             p.quads
                 .into_iter()
-                .map(|q| Polygon {
-                    normal: q.normal,
-                    vertices: q.vertices,
-                    cull_back: false,
+                .map(|mut q| {
+                    inset_uv(&mut q.vertices, texture);
+                    Polygon {
+                        normal: q.normal,
+                        vertices: q.vertices,
+                        cull_back: false,
+                    }
                 })
                 .collect()
         };
@@ -1447,7 +1513,11 @@ fn bake(g: &Geometry) -> Built {
             name,
             pose: p.pose,
             polygons,
-            children: p.children.into_iter().map(|c| convert(c, names)).collect(),
+            children: p
+                .children
+                .into_iter()
+                .map(|c| convert(c, names, texture))
+                .collect(),
         }
     }
     let mut names = Vec::new();
@@ -1455,7 +1525,7 @@ fn bake(g: &Geometry) -> Built {
     let children: Vec<Part> = g
         .to_tree()
         .into_iter()
-        .map(|p| convert(p, &mut names))
+        .map(|p| convert(p, &mut names, g.texture_size))
         .collect();
     // Not `root`: a pack's own `root` bone has its animation, and a shared name would apply it twice.
     let root = Part {
@@ -1586,21 +1656,31 @@ impl BedrockMobs {
         }
         let def = self.entity_def(&m.kind.id)?;
         let time = m.age as f32 + alpha;
+        // A screen's preview (the inventory's player box) keeps its own state, so it neither
+        // reads nor replaces the world's frame, and it re-poses every draw: the cursor moves it.
+        let gui = super::cem_anim::is_in_gui();
+        let key = if gui { m.id | 0x8000_0000 } else { m.id };
         let mut states = lock(&self.states);
-        let st = states.entry(m.id).or_insert_with(|| MobState {
+        let st = states.entry(key).or_insert_with(|| MobState {
             instance: Instance::new(u64::from(m.id) + 1),
             time,
             frame: None,
             seen: Instant::now(),
             dumped: f32::NEG_INFINITY,
         });
+        let since = st.seen.elapsed().as_secs_f32();
         st.seen = Instant::now();
-        if st.time == time
+        if !gui
+            && st.time == time
             && let Some(f) = &st.frame
         {
             return Some(f.clone());
         }
-        let dt = ((time - st.time) / 20.0).clamp(0.0, 0.1);
+        let dt = if gui {
+            since.clamp(0.0, 0.1)
+        } else {
+            ((time - st.time) / 20.0).clamp(0.0, 0.1)
+        };
         let assets = Assets {
             animations: &self.bundle.library,
             render_controllers: &self.bundle.render_controllers,

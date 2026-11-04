@@ -102,6 +102,30 @@ fn mark_oit(quads: &mut [Vertex]) {
         vertex.layer |= crate::gfx::OIT_ENTITY;
     }
 }
+/// A bedrock layer's quads in the draws its material asks for: blended (`mark_oit`), without
+/// a depth write (`DisableDepthWrite`, and the textures a multitexture material lays over its
+/// first), without a depth test (`DisableDepthTest`).
+fn tag_bedrock_material(
+    quads: &mut [Vertex],
+    flags: &horizon_bedrock::material::MaterialFlags,
+    secondary: bool,
+    translucent: bool,
+) {
+    let laid = flags.multitexture && secondary;
+    let mut bits = 0;
+    if flags.no_depth_write || laid {
+        bits |= crate::gfx::NO_DEPTH_WRITE;
+    }
+    if flags.no_depth_test {
+        bits |= crate::gfx::NO_DEPTH_TEST;
+    }
+    if flags.blend || laid || translucent || bits != 0 {
+        mark_oit(quads);
+    }
+    for vertex in quads {
+        vertex.layer |= bits;
+    }
+}
 /// Whether the species' model is built with `RenderTypes::entityTranslucent`
 /// (`Model.renderType`, which `LivingEntityRenderer.getRenderType` uses for the
 /// body): the allay, the piglins, the breeze, the vex, the player model and the
@@ -2414,9 +2438,12 @@ fn render_bedrock(
             if layer.layer.flat_lighting {
                 flatten_lighting(&mut out[start..]);
             }
-            if flags.blend || layer.layer.color[3] < 1.0 {
-                mark_oit(&mut out[start..]);
-            }
+            tag_bedrock_material(
+                &mut out[start..],
+                &flags,
+                layer.layer.secondary,
+                layer.layer.color[3] < 1.0,
+            );
             if let Some(glow) = glow {
                 let from = out.len();
                 draw(
@@ -2557,9 +2584,12 @@ fn render_bedrock(
                     )
                 });
             }
-            if flags.blend || layer.layer.color[3] < 1.0 {
-                mark_oit(&mut out[start..]);
-            }
+            tag_bedrock_material(
+                &mut out[start..],
+                &flags,
+                layer.layer.secondary,
+                layer.layer.color[3] < 1.0,
+            );
         }
     }
     // A body the pack laid down rests on the ground and, as the fall ends, on the spot where the

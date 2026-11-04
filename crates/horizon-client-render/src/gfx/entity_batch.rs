@@ -14,12 +14,22 @@ use super::Vertex;
 /// material at the end: the render types vanilla gives an `OitPipelineSet`
 /// (translucent, emissive, eyes and breeze wind entity models). Off, the tag is
 /// ignored and they stay in the first one, in their order.
-const MATERIALS: usize = 10;
+const MATERIALS: usize = 12;
+/// Order the materials' runs are laid out in. The two bedrock materials that turn the depth
+/// buffer off sit after the swirls and before the shadows, whose offsets count back from the
+/// end of the world quads; the improved transparency material stays last.
+const LAYOUT: [usize; MATERIALS] = [0, 1, 2, 3, 4, 5, 10, 11, 6, 7, 8, 9];
 /// A bit of `Vertex::layer`, above the overlay (low 16 bits) and the HDR tier
 /// (bits 16 to 23): the quad's render type has an `OitPipelineSet`
 /// (`RenderTypes.entityTranslucent`, `entityTranslucentEmissive`, `eyes`,
 /// `breezeWind`). Only the improved transparency path reads it.
 pub const OIT_ENTITY: u32 = 1 << 24;
+/// A bit of `Vertex::layer` above `OIT_ENTITY`: the quad's material is `DisableDepthWrite`
+/// (a bedrock add-on's): blended, depth tested, hiding nothing behind it.
+pub const NO_DEPTH_WRITE: u32 = 1 << 25;
+/// A bit of `Vertex::layer` above `NO_DEPTH_WRITE`: the quad's material is `DisableDepthTest`
+/// (a bedrock add-on's): it draws over what is nearer, without writing depth either.
+pub const NO_DEPTH_TEST: u32 = 1 << 26;
 /// `RenderPipelines.DRAGON_RAYS`: untextured colour, additive with depth writes.
 pub const DRAGON_RAYS_OVERLAY: u32 = 37;
 /// `RenderPipelines.ENTITY_CUTOUT_DISSOLVE` (the dying dragon): a pixel is dropped where the
@@ -57,6 +67,12 @@ pub const TEXT_POLYGON_OFFSET_OVERLAY: u32 = 35;
 fn material(layer: u32, oit: bool) -> usize {
     if oit && layer & OIT_ENTITY != 0 {
         return 9;
+    }
+    if layer & NO_DEPTH_TEST != 0 {
+        return 11;
+    }
+    if layer & NO_DEPTH_WRITE != 0 {
+        return 10;
     }
     match layer & 0xffff {
         TEXT_POLYGON_OFFSET_OVERLAY => 1,
@@ -118,8 +134,8 @@ impl EntityBatch {
         self.combined.clear();
         self.combined
             .reserve(entity_vertices + additive.len() + hand.len() + see_through.len());
-        for runs in &self.runs {
-            for &(first, count) in runs {
+        for kind in LAYOUT {
+            for &(first, count) in &self.runs[kind] {
                 self.combined
                     .extend_from_slice(&entities[first * 4..(first + count) * 4]);
             }
@@ -257,14 +273,48 @@ mod tests {
         let mut batch = EntityBatch::default();
         // Off: the tag changes nothing, the quads keep their place.
         let counts = batch.update(&entities, &[], &[], &[], false);
-        assert_eq!(counts, [4, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(counts, [4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
         let xs: Vec<f32> = batch.combined.iter().step_by(4).map(|v| v.pos[0]).collect();
         assert_eq!(xs, [0.0, 1.0, 2.0, 4.0, 3.0]);
         // On: the tagged quads come last, in order.
         let counts = batch.update(&entities, &[], &[], &[], true);
-        assert_eq!(counts, [2, 0, 0, 0, 0, 0, 1, 0, 0, 2]);
+        assert_eq!(counts, [2, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0]);
         let xs: Vec<f32> = batch.combined.iter().step_by(4).map(|v| v.pos[0]).collect();
         assert_eq!(xs, [0.0, 2.0, 3.0, 1.0, 4.0]);
+    }
+
+    #[test]
+    fn depth_flagged_quads_sit_between_the_swirls_and_the_shadows() {
+        let quad = |layer: u32, x: f32| {
+            (0..4).map(move |_| Vertex {
+                pos: [x, 0.0, 0.0],
+                layer,
+                ..geometry(1, false)[0]
+            })
+        };
+        let entities: Vec<Vertex> = [
+            (SHADOW_OVERLAY, 0.0),
+            (NO_DEPTH_WRITE, 1.0),
+            (0, 2.0),
+            (NO_DEPTH_TEST | NO_DEPTH_WRITE, 3.0),
+            (NO_DEPTH_WRITE | OIT_ENTITY, 4.0),
+        ]
+        .into_iter()
+        .flat_map(|(layer, x)| quad(layer, x))
+        .collect();
+        let mut batch = EntityBatch::default();
+        let xs = |batch: &EntityBatch| -> Vec<f32> {
+            batch.combined.iter().step_by(4).map(|v| v.pos[0]).collect()
+        };
+        // Off: without a depth write, without a depth test, the shadow, the improved
+        // transparency tag changes nothing.
+        let counts = batch.update(&entities, &[], &[], &[], false);
+        assert_eq!(counts, [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 1]);
+        assert_eq!(xs(&batch), [2.0, 1.0, 4.0, 3.0, 0.0]);
+        // On: the tagged quad goes to the improved stages.
+        let counts = batch.update(&entities, &[], &[], &[], true);
+        assert_eq!(counts, [1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1]);
+        assert_eq!(xs(&batch), [2.0, 1.0, 3.0, 0.0, 4.0]);
     }
 
     #[test]

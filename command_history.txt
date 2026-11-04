@@ -1,0 +1,2 @@
+/summon creeper ~ ~ ~ {powered:1}
+/time set 0
