@@ -11,3 +11,4 @@
 /time set 0
 /time set minecraft:night
 /summon creeper ~ ~ ~ {powered:1}
+/time set 0

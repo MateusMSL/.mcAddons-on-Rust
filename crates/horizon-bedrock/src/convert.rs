@@ -226,7 +226,13 @@ fn texture_png(pack: &Pack, texture: &str, lift: bool) -> Option<Vec<u8>> {
     }
     let tga = pack.read(&format!("{texture}.tga")).ok()?;
     let img = decode_tga(&tga)?;
-    encode_png(&img)
+    let png = encode_png(&img)?;
+    // A TGA's faint texels (an eye painted at alpha 3) are lifted like a PNG's.
+    Some(if lift {
+        lift_faint_alpha(&png).unwrap_or(png)
+    } else {
+        png
+    })
 }
 
 /// What an emissive material lights in a texture: the texels that are neither clear nor opaque,
@@ -725,7 +731,7 @@ fn convert_settings(pack: &Pack, out: &Path) -> Result<()> {
 
 /// Bumped whenever the conversion's output changes, so packs converted by an older engine
 /// convert again instead of coming out of the cache.
-pub const CONVERTER_REVISION: u64 = 7;
+pub const CONVERTER_REVISION: u64 = 8;
 
 /// A folder name for a converted pack: stable for the same input, different for others.
 pub fn cache_name(source: &Path, modified_secs: u64, size: u64) -> PathBuf {
@@ -972,6 +978,34 @@ mod tests {
         assert!(decode_tga(&[0; 5]).is_none());
         let png = encode_png(&img).unwrap();
         assert_eq!(&png[1..4], b"PNG");
+    }
+
+    #[test]
+    fn a_tga_with_a_faint_texel_has_it_lifted_like_a_png() {
+        let dir = tmp("tga-faint");
+        fixture(&dir);
+        // Two pixels (BGRA): an eye at alpha 3 and a solid one.
+        let mut b = vec![0u8; 18];
+        b[2] = 2;
+        b[12] = 2;
+        b[14] = 1;
+        b[16] = 32;
+        b[17] = 0x28;
+        b.extend([0, 0, 255, 3, 9, 9, 9, 255]);
+        put(&dir, "textures/entity/eye.tga", &b);
+        let pack = Pack::open(&dir).unwrap();
+        let alpha = |png: &[u8]| {
+            let mut d = png::Decoder::new(std::io::Cursor::new(png));
+            d.set_transformations(png::Transformations::EXPAND);
+            let mut r = d.read_info().unwrap();
+            let mut buf = vec![0; r.output_buffer_size().unwrap()];
+            r.next_frame(&mut buf).unwrap();
+            (buf[3], buf[7])
+        };
+        let lifted = texture_png(&pack, "textures/entity/eye", true).unwrap();
+        assert_eq!(alpha(&lifted), (255, 255));
+        let raw = texture_png(&pack, "textures/entity/eye", false).unwrap();
+        assert_eq!(alpha(&raw), (3, 255));
     }
 
     fn fixture(dir: &Path) {

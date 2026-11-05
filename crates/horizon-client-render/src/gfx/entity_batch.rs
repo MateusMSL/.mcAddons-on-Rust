@@ -14,11 +14,12 @@ use super::Vertex;
 /// material at the end: the render types vanilla gives an `OitPipelineSet`
 /// (translucent, emissive, eyes and breeze wind entity models). Off, the tag is
 /// ignored and they stay in the first one, in their order.
-const MATERIALS: usize = 12;
-/// Order the materials' runs are laid out in. The two bedrock materials that turn the depth
-/// buffer off sit after the swirls and before the shadows, whose offsets count back from the
-/// end of the world quads; the improved transparency material stays last.
-const LAYOUT: [usize; MATERIALS] = [0, 1, 2, 3, 4, 5, 10, 11, 6, 7, 8, 9];
+const MATERIALS: usize = 13;
+/// Order the materials' runs are laid out in. The bedrock materials that turn the depth buffer
+/// off, then the ones that add light (12), sit after the swirls and before the shadows, whose
+/// offsets count back from the end of the world quads; the improved transparency material
+/// stays last.
+const LAYOUT: [usize; MATERIALS] = [0, 1, 2, 3, 4, 5, 10, 11, 12, 6, 7, 8, 9];
 /// A bit of `Vertex::layer`, above the overlay (low 16 bits) and the HDR tier
 /// (bits 16 to 23): the quad's render type has an `OitPipelineSet`
 /// (`RenderTypes.entityTranslucent`, `entityTranslucentEmissive`, `eyes`,
@@ -30,6 +31,10 @@ pub const NO_DEPTH_WRITE: u32 = 1 << 25;
 /// A bit of `Vertex::layer` above `NO_DEPTH_WRITE`: the quad's material is `DisableDepthTest`
 /// (a bedrock add-on's): it draws over what is nearer, without writing depth either.
 pub const NO_DEPTH_TEST: u32 = 1 << 26;
+/// A bit of `Vertex::layer` above `NO_DEPTH_TEST`: the quad's material adds its colour times its
+/// alpha to what is behind (`blendSrc SourceAlpha`, `blendDst One`, a bedrock add-on's glow):
+/// depth tested, writing no depth, in either transparency path.
+pub const ADDITIVE: u32 = 1 << 27;
 /// `RenderPipelines.DRAGON_RAYS`: untextured colour, additive with depth writes.
 pub const DRAGON_RAYS_OVERLAY: u32 = 37;
 /// `RenderPipelines.ENTITY_CUTOUT_DISSOLVE` (the dying dragon): a pixel is dropped where the
@@ -65,6 +70,9 @@ pub const TEXT_POLYGON_OFFSET_OVERLAY: u32 = 35;
 /// The material of a quad by its overlay (`MATERIALS` order): the overlay is the layer's low 16
 /// bits, as entity.wgsl reads it; HDR output's tier rides in the high ones.
 fn material(layer: u32, oit: bool) -> usize {
+    if layer & ADDITIVE != 0 {
+        return 12;
+    }
     if oit && layer & OIT_ENTITY != 0 {
         return 9;
     }
@@ -273,12 +281,12 @@ mod tests {
         let mut batch = EntityBatch::default();
         // Off: the tag changes nothing, the quads keep their place.
         let counts = batch.update(&entities, &[], &[], &[], false);
-        assert_eq!(counts, [4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
+        assert_eq!(counts, [4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
         let xs: Vec<f32> = batch.combined.iter().step_by(4).map(|v| v.pos[0]).collect();
         assert_eq!(xs, [0.0, 1.0, 2.0, 4.0, 3.0]);
         // On: the tagged quads come last, in order.
         let counts = batch.update(&entities, &[], &[], &[], true);
-        assert_eq!(counts, [2, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0]);
+        assert_eq!(counts, [2, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 0]);
         let xs: Vec<f32> = batch.combined.iter().step_by(4).map(|v| v.pos[0]).collect();
         assert_eq!(xs, [0.0, 2.0, 3.0, 1.0, 4.0]);
     }
@@ -309,12 +317,41 @@ mod tests {
         // Off: without a depth write, without a depth test, the shadow, the improved
         // transparency tag changes nothing.
         let counts = batch.update(&entities, &[], &[], &[], false);
-        assert_eq!(counts, [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 1]);
+        assert_eq!(counts, [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 1, 0]);
         assert_eq!(xs(&batch), [2.0, 1.0, 4.0, 3.0, 0.0]);
         // On: the tagged quad goes to the improved stages.
         let counts = batch.update(&entities, &[], &[], &[], true);
-        assert_eq!(counts, [1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1]);
+        assert_eq!(counts, [1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0]);
         assert_eq!(xs(&batch), [2.0, 1.0, 3.0, 0.0, 4.0]);
+    }
+
+    #[test]
+    fn glow_quads_have_their_own_material_with_or_without_improved_transparency() {
+        let quad = |layer: u32, x: f32| {
+            (0..4).map(move |_| Vertex {
+                pos: [x, 0.0, 0.0],
+                layer,
+                ..geometry(1, false)[0]
+            })
+        };
+        let entities: Vec<Vertex> = [
+            (SHADOW_OVERLAY, 0.0),
+            (ADDITIVE | OIT_ENTITY | NO_DEPTH_WRITE, 1.0),
+            (0, 2.0),
+            (NO_DEPTH_WRITE, 3.0),
+            (ADDITIVE | 3 << 16, 4.0),
+        ]
+        .into_iter()
+        .flat_map(|(layer, x)| quad(layer, x))
+        .collect();
+        let mut batch = EntityBatch::default();
+        for oit in [false, true] {
+            let counts = batch.update(&entities, &[], &[], &[], oit);
+            assert_eq!(counts[12], 2, "oit {oit}");
+            assert_eq!(counts[9], 0, "oit {oit}");
+            let xs: Vec<f32> = batch.combined.iter().step_by(4).map(|v| v.pos[0]).collect();
+            assert_eq!(xs, [2.0, 3.0, 1.0, 4.0, 0.0], "oit {oit}");
+        }
     }
 
     #[test]

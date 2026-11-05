@@ -119,6 +119,11 @@ fn tag_bedrock_material(
     if flags.no_depth_test {
         bits |= crate::gfx::NO_DEPTH_TEST;
     }
+    // Light that adds (`blendSrc SourceAlpha`, `blendDst One`): its own pipeline, which adds the
+    // colour times the alpha to what is behind instead of laying the texture over it.
+    if flags.additive {
+        bits |= crate::gfx::ADDITIVE;
+    }
     if flags.blend || laid || translucent || bits != 0 {
         mark_oit(quads);
     }
@@ -2347,7 +2352,12 @@ fn render_bedrock(
             }
             // An emissive material lights only the texels the texture leaves less than opaque
             // (its `_glow` sprite): the rest of the model keeps the world's light.
-            let glow = if flags.emissive && !layer.layer.ignore_lighting && found.is_some() {
+            // (A layer that adds light needs no second draw: it already is all glow.)
+            let glow = if flags.emissive
+                && !flags.additive
+                && !layer.layer.ignore_lighting
+                && found.is_some()
+            {
                 atlas(&format!("{}_glow", layer.texture))
             } else {
                 None
@@ -2476,10 +2486,11 @@ fn render_bedrock(
                 let (id, bits) = (m.kind.id.clone(), v.layer);
                 log_bedrock_once(format!("{id}/tag/{}/{}", layer.layer.geometry, layer.texture), || {
                     format!(
-                        "{id}: layer {} {} draws as oit={} no_depth_write={} no_depth_test={} blend={} emissive={} stencil_write={} stencil_not_equal={} color_alpha={}",
+                        "{id}: layer {} {} draws as oit={} additive={} no_depth_write={} no_depth_test={} blend={} emissive={} stencil_write={} stencil_not_equal={} color_alpha={}",
                         layer.layer.geometry,
                         layer.texture,
                         bits & crate::gfx::OIT_ENTITY != 0,
+                        bits & crate::gfx::ADDITIVE != 0,
                         bits & crate::gfx::NO_DEPTH_WRITE != 0,
                         bits & crate::gfx::NO_DEPTH_TEST != 0,
                         flags.blend,

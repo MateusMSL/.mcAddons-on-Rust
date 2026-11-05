@@ -318,6 +318,17 @@ fn entity_color(in: Out, front: bool) -> vec4<f32> {
     return vec4(mix(color.rgb, globals.fog_color.rgb, f * globals.fog_color.a), color.a);
 }
 
+// A bedrock material that adds its colour times its alpha (`blendSrc SourceAlpha`, `blendDst
+// One`): the lit colour with the fog taken out of it, since light added to a foggy distance
+// fades with it rather than turning fog-coloured. The blend multiplies by the alpha.
+@fragment fn fs_entity_glow(in: Out, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let color = entity_color(in, front);
+    let f = max(linear_fog(in.fog_distance.x, globals.fog.x, globals.fog.y),
+                linear_fog(in.fog_distance.y, globals.fog.z, globals.fog.w));
+    let k = clamp(f * globals.fog_color.a, 0.0, 1.0);
+    return vec4(max(color.rgb - globals.fog_color.rgb * k, vec3(0.0)), color.a);
+}
+
 // rendertype_outline.fsh: the vertex colour (the team colour; outline vertices carry no
 // normal, so no cardinal light) wherever the texture is not fully clear.
 // rendertype_entity_shadow.fsh: the shadow texture times the vertex colour,

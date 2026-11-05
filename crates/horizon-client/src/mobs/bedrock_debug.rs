@@ -210,10 +210,8 @@ pub fn settings() -> Arc<Settings> {
     st.checked = Some(Instant::now());
     if first && st.cur.debug {
         log::info!("bedrock: engine build {}", super::bedrock::ENGINE_BUILD);
-        if !st.path.exists() {
-            if std::fs::write(&st.path, TEMPLATE).is_ok() {
-                log::info!("bedrock-debug: template written to {}", st.path.display());
-            }
+        if !st.path.exists() && std::fs::write(&st.path, TEMPLATE).is_ok() {
+            log::info!("bedrock-debug: template written to {}", st.path.display());
         }
     }
     let now = stamp(&st.path);
