@@ -187,12 +187,20 @@ impl Bundle {
             match rel.split('/').next().unwrap_or("") {
                 "entity" => {
                     if let Some(d) = ClientEntity::parse(&v) {
-                        b.entities.insert(d.id.to_ascii_lowercase(), d);
+                        let key = d.id.to_ascii_lowercase();
+                        // One file per version of an entity: the highest `min_engine_version`
+                        // stays, and of equal ones the later file.
+                        if b.entities.get(&key).is_none_or(|old| old.min_engine <= d.min_engine) {
+                            b.entities.insert(key, d);
+                        }
                     }
                 }
                 "attachables" => {
                     if let Some(d) = ClientEntity::parse(&v) {
-                        b.attachables.insert(d.id.to_ascii_lowercase(), d);
+                        let key = d.id.to_ascii_lowercase();
+                        if b.attachables.get(&key).is_none_or(|old| old.min_engine <= d.min_engine) {
+                            b.attachables.insert(key, d);
+                        }
                     }
                 }
                 "animations" | "animation_controllers" => b.library.add_file(&v),

@@ -2612,7 +2612,11 @@ fn render_bedrock(
             Some(if in_hand && att.binds.contains_key(bone) {
                 // The bone's pivot lands on the hand; a bone left at the origin keeps the
                 // feet-line anchor.
-                let pivot = if super::bedrock_debug::settings().held_by_frame() {
+                let has_parent = !att
+                    .layers
+                    .iter()
+                    .any(|l| l.built.part.children.iter().any(|c| c.name == bone));
+                let pivot = if super::bedrock_debug::settings().held_by_frame(has_parent) {
                     glam::Vec3::ZERO
                 } else {
                     att.layers

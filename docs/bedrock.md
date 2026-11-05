@@ -42,6 +42,7 @@ fixtures.
 
 `--example inspect_entity -- <pack> minecraft:spider [name tag]` prints what the pack draws for one entity
 (layers, geometry and texture found or missing, bones shown, scale, pose); `all` lists the ids.
+`--example render_entity -- <pack> minecraft:player out.png` with `HOLD=minecraft:mace` (`SLOT=`, `ANCHOR=pivot|frame`) draws the holder with the attachable in hand and prints where it sits relative to the hand. `crates/horizon-bedrock/tests/synthetic_pack.rs` builds a pack in the test and runs it through open, convert, load and play. The vanilla resource pack (`Mojang/bedrock-samples`) is the second reference pack for `scan_pack`.
 In game, `HORIZON_BEDROCK_DEBUG=1` logs once per entity: geometry, texture (pack or the game's own),
 vertices, and `top`/`feet` (the model's highest and lowest point in blocks; `feet` is 1.501 on the ground).
 A texture the pack names under `textures/entity/` and does not ship is looked up in the game's own

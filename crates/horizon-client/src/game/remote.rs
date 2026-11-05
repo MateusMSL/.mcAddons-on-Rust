@@ -3561,6 +3561,16 @@ impl Game<'_> {
                 }
                 self.remote_mob_data(p.id, &p.values);
                 if let Some(m) = self.mob_index.get_mut(&mut self.mobs, p.id as u32)
+                    && m.species() == horizon_client::mobs::Species::Blaze
+                {
+                    // Blaze.DATA_FLAGS_ID, bit 0: on fire, which a pack reads as `is_charged`.
+                    for (index, _, value) in &p.values {
+                        if let (16, Value::Byte(flags)) = (index, value) {
+                            m.extra.flag = flags & 1 != 0;
+                        }
+                    }
+                }
+                if let Some(m) = self.mob_index.get_mut(&mut self.mobs, p.id as u32)
                     && m.species() == horizon_client::mobs::Species::Creeper
                 {
                     for (index, _, value) in &p.values {

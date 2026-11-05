@@ -70,6 +70,53 @@ pub fn compile(src: &str) -> Option<Program> {
     }
 }
 
+/// How many `{` and `(` a line leaves open (a quoted string holds none).
+pub fn open_depth(line: &str) -> i32 {
+    let mut depth = 0;
+    let mut quoted = false;
+    for c in line.chars() {
+        match c {
+            '\'' => quoted = !quoted,
+            '{' | '(' if !quoted => depth += 1,
+            '}' | ')' if !quoted => depth -= 1,
+            _ => {}
+        }
+    }
+    depth
+}
+
+/// Compiles the lines of a script array. Each line is a program, except that a block the pack
+/// opens on one line and closes on a later one (`"(v.a) ? {"`, `"  v.b = 1;"`, `"};"`, which the
+/// vanilla entities write) is one program made of those lines.
+pub fn compile_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Vec<Program> {
+    // A group that does not parse as a whole falls back to its lines one by one, so a stray `(`
+    // costs its own line and not the ones after it.
+    fn flush(group: &mut Vec<&str>, out: &mut Vec<Program>) {
+        match group.as_slice() {
+            [] => {}
+            [one] => out.extend(compile(one)),
+            many => match molang::parse(&many.join("\n")) {
+                Ok(p) => out.push(p),
+                Err(_) => out.extend(many.iter().filter_map(|l| compile(l))),
+            },
+        }
+        group.clear();
+    }
+    let mut out = Vec::new();
+    let mut group: Vec<&str> = Vec::new();
+    let mut depth = 0;
+    for line in lines {
+        group.push(line);
+        depth += open_depth(line);
+        if depth <= 0 {
+            flush(&mut group, &mut out);
+            depth = 0;
+        }
+    }
+    flush(&mut group, &mut out);
+    out
+}
+
 /// What a running expression sees besides the entity: the time of the animation or state it is
 /// part of.
 #[derive(Clone, Copy, Debug, Default)]
@@ -672,12 +719,7 @@ pub struct Controller {
 
 fn programs(v: Option<&Json>) -> Vec<Program> {
     v.and_then(Json::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Json::as_str)
-                .filter_map(compile)
-                .collect()
-        })
+        .map(|a| compile_lines(a.iter().filter_map(Json::as_str)))
         .unwrap_or_default()
 }
 
@@ -880,6 +922,10 @@ pub struct Run<'a, 'b> {
     pub lib: &'a Library,
     /// The entity's `animations` map: short name to `animation.x` or `controller.animation.x`.
     pub names: &'a HashMap<String, String>,
+    /// The entity's `animation_controllers` section, a name space of its own: what `animate`
+    /// names first, while a controller's states name the `animations` first (`move` is both the
+    /// animation and the controller that plays it in the vanilla entities).
+    pub controllers: &'a HashMap<String, String>,
     pub env: &'a mut Env<'b>,
     pub pose: &'a mut Pose,
     pub events: &'a mut Vec<Event>,
@@ -889,10 +935,32 @@ pub struct Run<'a, 'b> {
 impl Run<'_, '_> {
     /// Advances and applies the animation or controller called `name` (a short name) at `weight`.
     pub fn play(&mut self, nodes: &mut Children, name: &str, weight: f32) {
-        let Some(full) = self.names.get(name) else {
+        thread_local! {
+            static NESTING: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        }
+        /// Controllers that play controllers go this deep; past it a pack has a loop (a state
+        /// that plays the controller it belongs to), which is cut rather than followed.
+        const MAX_NESTING: u32 = 24;
+        let (first, second) = if NESTING.get() == 0 {
+            (self.controllers, self.names)
+        } else {
+            (self.names, self.controllers)
+        };
+        let Some(full) = first.get(name).or_else(|| second.get(name)) else {
             return;
         };
         let full = full.to_ascii_lowercase();
+        if NESTING.get() >= MAX_NESTING {
+            log::warn!("Horizon: Bedrock animation `{name}` ({full}) plays itself: cut");
+            return;
+        }
+        NESTING.set(NESTING.get() + 1);
+        self.play_node(nodes, name, &full, weight);
+        NESTING.set(NESTING.get() - 1);
+    }
+
+    fn play_node(&mut self, nodes: &mut Children, name: &str, full: &str, weight: f32) {
+        let full = full.to_owned();
         if let Some(anim) = self.lib.animations.get(&full) {
             let node = nodes
                 .entry(name.to_owned())
@@ -1089,6 +1157,21 @@ impl Run<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_block_over_several_lines_is_one_program() {
+        let lines = [
+            "v.a = 1;",
+            "(v.a) ? {",
+            "  t.b = 2;",
+            "  v.c = t.b + 1;",
+            "};",
+            "v.d = '{(' ;",
+        ];
+        assert_eq!(compile_lines(lines).len(), 3);
+        // A line that does not parse is lost on its own, not with the ones around it.
+        assert_eq!(compile_lines(["v.a = 1;", "v.b = (;", "v.c = 3;"]).len(), 2);
+    }
+
     use super::*;
     use crate::jsonc;
 
@@ -1143,6 +1226,7 @@ mod tests {
             let mut run = Run {
                 lib,
                 names,
+                controllers: &HashMap::new(),
                 env: &mut env,
                 pose: &mut self.pose,
                 events: &mut self.events,

@@ -6,7 +6,7 @@
 //! animations. [`Instance::update`] runs a frame and gives a [`Frame`] the renderer draws.
 //! The game answers `query.*` through [`Host`]; nothing here reads game state itself.
 
-use crate::animation::{Children, Env, Event, Library, Pose, Run, Scalar, Scope, compile};
+use crate::animation::{Children, Env, Event, Library, Pose, Run, Scalar, Scope, compile, compile_lines};
 use crate::molang::{Host, Program, ResKind, Rng, Value, Vars};
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -69,14 +69,24 @@ fn named_conditions(v: Option<&Json>, lower: bool) -> Vec<(String, Option<Progra
 
 fn scripts(v: Option<&Json>) -> Vec<Program> {
     match v {
-        Some(Json::Array(a)) => a
-            .iter()
-            .filter_map(Json::as_str)
-            .filter_map(compile)
-            .collect(),
+        Some(Json::Array(a)) => compile_lines(a.iter().filter_map(Json::as_str)),
         Some(Json::String(s)) => compile(s).into_iter().collect(),
         _ => Vec::new(),
     }
+}
+
+/// The `animation_controllers` section: a list of one-entry maps, or one map.
+fn controllers_of(d: &Json) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    match d.get("animation_controllers") {
+        Some(Json::Array(a)) => {
+            for item in a {
+                map.extend(string_map(Some(item)));
+            }
+        }
+        other => map.extend(string_map(other)),
+    }
+    map
 }
 
 /// What a client entity or attachable declares.
@@ -90,6 +100,10 @@ pub struct ClientEntity {
     pub geometry: HashMap<String, String>,
     /// Short name to `animation.x` or `controller.animation.x`.
     pub animations: HashMap<String, String>,
+    /// The `animation_controllers` section apart (older layout, and the vanilla entities):
+    /// short name to `controller.animation.x`. `animations` holds these too, where no
+    /// animation takes the name.
+    pub controllers: HashMap<String, String>,
     pub sounds: HashMap<String, String>,
     pub particles: HashMap<String, String>,
     pub initialize: Vec<Program>,
@@ -111,6 +125,9 @@ pub struct ClientEntity {
     /// Attachables only: items other than `id` it also dresses, with conditions.
     pub items: Vec<(String, Option<Program>)>,
     pub enable_attachables: bool,
+    /// `min_engine_version`: a pack carries one file per version of the same entity; the game
+    /// uses the highest one (none counts as 0.0.0).
+    pub min_engine: [u32; 3],
 }
 
 impl ClientEntity {
@@ -134,19 +151,17 @@ impl ClientEntity {
                 .collect(),
             animations: {
                 let mut map = string_map(d.get("animations"));
-                // The older layout lists controllers apart, one short name each.
-                match d.get("animation_controllers") {
-                    Some(Json::Array(a)) => {
-                        for item in a {
-                            map.extend(string_map(Some(item)));
-                        }
-                    }
-                    other => map.extend(string_map(other)),
+                for (k, v) in controllers_of(d) {
+                    map.entry(k).or_insert(v);
                 }
                 map.into_iter()
                     .map(|(k, v)| (k, v.to_ascii_lowercase()))
                     .collect()
             },
+            controllers: controllers_of(d)
+                .into_iter()
+                .map(|(k, v)| (k, v.to_ascii_lowercase()))
+                .collect(),
             sounds: string_map(d.get("sound_effects")),
             particles: string_map(d.get("particle_effects")),
             initialize: scripts(sub("initialize")),
@@ -154,8 +169,13 @@ impl ClientEntity {
             parent_setup: scripts(sub("parent_setup")),
             animate: named_conditions(sub("animate"), true),
             scale: sub("scale").and_then(condition).flatten(),
-            scale_axes: ["scalex", "scaley", "scalez"]
-                .map(|k| sub(k).and_then(condition).flatten()),
+            // Vanilla writes `scaleX`, other packs `scalex`.
+            scale_axes: ["scalex", "scaley", "scalez"].map(|k| {
+                s.and_then(Json::as_object)
+                    .and_then(|o| o.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)))
+                    .and_then(|(_, v)| condition(v))
+                    .flatten()
+            }),
             hide_armor: d.get("hide_armor").and_then(Json::as_bool).unwrap_or(false),
             hide_held_items: sub("hide_held_items").and_then(condition).flatten(),
             held_item_scale: d.get("held_item_scale").and_then(condition).flatten(),
@@ -177,6 +197,10 @@ impl ClientEntity {
                 .get("enable_attachables")
                 .and_then(Json::as_bool)
                 .unwrap_or(false),
+            min_engine: d
+                .get("min_engine_version")
+                .and_then(crate::manifest::Version::from_json)
+                .map_or([0; 3], |v| v.0),
         })
     }
 }
@@ -849,6 +873,7 @@ impl Instance {
                     let mut r = Run {
                         lib: assets.animations,
                         names: &def.animations,
+                        controllers: &def.controllers,
                         env: &mut env,
                         pose: &mut pose,
                         events: &mut events,
@@ -960,12 +985,17 @@ impl Instance {
             vars: &mut self.vars,
             rng: &mut self.rng,
         };
-        let mut colour = |c: &Option<[Scalar; 4]>| {
+        let mut colour = |c: &Option<[Scalar; 4]>, this: f32| {
+            let scope = Scope {
+                this: Some(this),
+                ..Scope::default()
+            };
             c.as_ref()
-                .map(|c| std::array::from_fn(|i| c[i].eval(&mut env, Scope::default())))
+                .map(|c| std::array::from_fn(|i| c[i].eval(&mut env, scope)))
         };
-        let mut color = colour(&rc.color).unwrap_or([1.0; 4]);
-        if on_fire && let Some(fire) = colour(&rc.on_fire_color) {
+        // `this` in `color` is the colour's own default, white; in the others, none.
+        let mut color = colour(&rc.color, 1.0).unwrap_or([1.0; 4]);
+        if on_fire && let Some(fire) = colour(&rc.on_fire_color, 0.0) {
             // The fire colour's alpha is how much of it shows over the entity, not how see-through
             // the entity gets: a pack that flickers it would make the mob blink in and out.
             let k = fire[3].clamp(0.0, 1.0);
@@ -973,7 +1003,7 @@ impl Instance {
                 color[i] += (fire[i] - color[i]) * k;
             }
         }
-        let overlay = colour(if hurt { &rc.hurt_color } else { &rc.overlay });
+        let overlay = colour(if hurt { &rc.hurt_color } else { &rc.overlay }, 0.0);
         let light_multiplier = rc
             .light_multiplier
             .as_ref()
@@ -991,7 +1021,7 @@ impl Instance {
         let start = out.len();
         for (index, t) in rc.textures.iter().enumerate() {
             let v = run(host, &mut self.vars, &mut self.rng, t);
-            let Some(texture) = name_of(&v).and_then(|k| def.textures.get(&k).cloned()) else {
+                let Some(texture) = name_of(&v).and_then(|k| def.textures.get(&k).cloned()) else {
                 continue;
             };
             out.push(Layer {

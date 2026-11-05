@@ -47,7 +47,29 @@ fn looks_like_molang(s: &str) -> bool {
 fn walk(v: &Value, out: &mut Vec<String>) {
     match v {
         Value::String(s) if looks_like_molang(s) => out.push(s.clone()),
-        Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
+        Value::Array(a) => {
+            // A block a script opens on one line and closes on a later one is one expression.
+            let (mut group, mut depth) = (String::new(), 0);
+            for x in a {
+                match x {
+                    Value::String(s) if looks_like_molang(s) || depth > 0 => {
+                        if !group.is_empty() {
+                            group.push('\n');
+                        }
+                        group.push_str(s);
+                        depth += horizon_bedrock::animation::open_depth(s);
+                        if depth <= 0 {
+                            out.push(std::mem::take(&mut group));
+                            depth = 0;
+                        }
+                    }
+                    other => walk(other, out),
+                }
+            }
+            if !group.is_empty() {
+                out.push(group);
+            }
+        }
         Value::Object(o) => {
             for (k, x) in o {
                 if looks_like_molang(k) {
@@ -60,7 +82,20 @@ fn walk(v: &Value, out: &mut Vec<String>) {
     }
 }
 
+/// Prints the crate's warnings (a Molang line that does not parse, an animation that plays itself).
+struct Warnings;
+impl log::Log for Warnings {
+    fn enabled(&self, m: &log::Metadata) -> bool {
+        m.level() <= log::Level::Warn
+    }
+    fn log(&self, r: &log::Record) {
+        eprintln!("warning: {}", r.args());
+    }
+    fn flush(&self) {}
+}
+
 fn main() {
+    let _ = log::set_logger(&Warnings).map(|()| log::set_max_level(log::LevelFilter::Warn));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(path) = args.first() else {
         eprintln!("usage: scan_pack <pack> [subpack]");

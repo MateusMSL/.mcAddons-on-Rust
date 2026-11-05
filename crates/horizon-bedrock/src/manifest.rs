@@ -8,7 +8,7 @@ use serde_json::Value;
 pub struct Version(pub [u32; 3]);
 
 impl Version {
-    fn from_json(v: &Value) -> Option<Self> {
+    pub fn from_json(v: &Value) -> Option<Self> {
         match v {
             Value::Array(a) => {
                 let mut out = [0u32; 3];

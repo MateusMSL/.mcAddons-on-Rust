@@ -45,14 +45,16 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 - [~] Brilho billboard (`oreville_auulis`: disco `cim` da aranha, enderman...): aditivo (v37) e olhos do `.tga` sólidos (v38); em certos ângulos o disco aparece de lado (linha fina) ou como mancha no chão; números de `hcmvys`/`rdmkec`/`habcyx` batem com o esperado, falta referência do Bedrock; `probe_facing` (offline) confirma que o giro e a inclinação do disco seguem o mesmo sentido da cabeça em todos os ângulos; falta referência do Bedrock (prints) para achar a diferença restante
 - [~] Armadura vestida: ossos de mesmo nome seguem o osso do portador; camadas sobrepostas deslocadas (v25)
 - [~] `texture_meshes` com sprite do jogo (`mesh_variant`): item plano e `use_pixel_depth`
+- [x] Mace, besta, tridente, bola de vento, espada e ovos de spawn na mão (v49 `held_anchor: auto`, validado no jogo; osso sem pai → origem do modelo, com pai → pivô)
 - [ ] **1ª pessoa**: `c.is_first_person=1`, mão e item no espaço da câmera. Hoje só o sprite novo do item aparece
 - [ ] Item no inventário, hotbar, GUI e no chão (`is_in_ui`, `is_paperdoll`)
 - [ ] Poção (frasco e líquido, textura original escondida)
 - [~] Ferramentas (espada/machado dourados) invisiveis na mao: textura `dim` 1024x1024 fora do atlas (limite 1024x512); v45 reduz no conversor; falta confirmar no jogo
+- [~] Cavalo, burro, coelho, blaze, axolote (v50): ver a linha v50 da tabela; conferir no jogo (cavalo/burro animam, coelho com o tamanho do vanilla ×1,08, axolote em terra sem ficar esticado, blaze com fogo e ataque do pacote)
 - [~] Validacao de mobs (A&S, v45): ovelha com olho bugado (1 olho com pupila, outro castanho); burro e cavalo sem animacao; coelho gigantesco (escala adulta 1.8 do pacote, geometria 18 px); axolote invocado em terra fica de pe e inclinado (na agua ok); baiacu sem forma inflada; allay e vex com bordas das camadas externas bugadas; cubo de enxofre invocado afunda na terra; boneco de neve sem variacoes; lhama do mercador sem manta; chapeu do aldeao fazendeiro com a cabeca sobre o chapeu; cabeca do tatu piscando; cavalo esqueleto com sela sem sela (`q.is_saddled`); breeze perde o tornado depois de segundos e nao volta; fumaca do phantom colada nele; besta do pillager mal posicionada (provavel no player tambem); galinhas do stun do ravager mal posicionadas; blaze sem fogo proprio e sem animacao de ataque; ghast sem animacao de ataque e sem bola de fogo da textura; shulker preta (talvez textura do pacote); golem de cobre e creaking ok, so o glow dos olhos
 - [x] `dump` v46 loga tambem is_saddled, is_baby, is_tamed, has_rider, is_riding, is_charged, is_angry, is_sheared, is_sleeping, is_sitting, is_alive, is_on_fire, is_attached, variant, mark_variant, skin_id, body rotations, yaw_speed, life_time
 - [ ] Elytra, escudo, tridente, arco/besta em uso, balde, bússola/relógio animados
-- [ ] Cabeças e `carved_pumpkin` no slot `head`
+- [~] Cabeças e `carved_pumpkin` no slot `head`: `HOLD=... SLOT=head` no `render_entity` (osso `head`, mudança desde o repouso); offline o A&S não desenha (a escala lê `q.is_pack_setting_selected`, sem resposta fora do jogo); falta ver no jogo
 - [ ] Trims e tinta de armadura de couro
 
 ## 4. Materiais e desenho
@@ -66,7 +68,8 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 ## 5. Recursos que não são entidade
 
 - [x] Texturas de blocos e itens (`textures/blocks`, `items`) escritas como recurso Java; céu, color maps
-- [ ] `blocks.json`, `terrain_texture.json`, `item_texture.json`, `flipbook_textures.json` (animação de textura)
+- [~] `terrain_texture.json` e `item_texture.json` (arquivo que o bloco/item usa, com qualquer nome) e `flipbook_textures.json` (`.png.mcmeta` com `frametime`, `frames`, `interpolate`): v48, conversor revisão 11, testado no pack sintético; falta ver água/lava/fogo animados no jogo
+- [ ] `blocks.json` (som, brilho e textura por bloco)
 - [ ] `biomes_client.json`, fogs, `sky`, água e folhagem por bioma
 - [ ] JSON UI (`ui/`): título, menus, HUD
 - [ ] `sounds.json` de blocos e UI (sons de entidade já lidos)
@@ -82,9 +85,9 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 
 - [x] `audit_pack`, `scan_pack`, `convert_pack`, `inspect_entity`, `render_entity` (variáveis `Q=`, `WALK=`, `BONES=`, `DESCRIBE=`), `probe_attach`
 - [x] Log `HORIZON_BEDROCK_DEBUG=1`, dump de queries e variáveis
-- [ ] Captura offline de attachable (`render_attachable`) para ver item na mão sem abrir o jogo
-- [ ] Teste de regressão com pack sintético por recurso (um pack mínimo por item deste roadmap)
-- [ ] Segundo pack de referência (pack pequeno de terceiros) para separar bug do engine de bug do A&S
+- [x] Captura offline de attachable: `render_entity` com `HOLD=<attachable>` (`SLOT=`, `ANCHOR=auto|pivot|frame`) desenha o jogador com o item na mão e imprime onde o item fica em relação à mão (v48)
+- [~] Teste de regressão com pack sintético: `tests/synthetic_pack.rs` escreve uma pasta de pack e passa por abrir, converter, carregar e rodar (entidade, geometria, render controller, animação, controller, attachable, controller e animação com o mesmo nome curto); falta um pack mínimo para cada item restante do roadmap
+- [x] Segundo pack de referência: o resource pack vanilla do Mojang (`Mojang/bedrock-samples`, sem texturas) passa no `scan_pack` sem falha (v48 corrigiu: blocos Molang em várias linhas de um array, controller que toca animação de mesmo nome curto, `scaleX/Y/Z` em maiúsculas)
 
 ## Histórico de builds
 
@@ -115,4 +118,6 @@ Atualizar a cada build: marcar o item, anotar a build (`ENGINE_BUILD`) e o resul
 | v45 `atlas-fit` | conversor (rev 10): textura acima de 1024x512 (limite do atlas, que a descartava calada) reduzida por fator de 2 com media; espada/machado dourados (`dim` 1024x1024) voltam; 17 texturas do A&S | pendente (jogo) |
 | v46 `dump-queries` | `dump` loga mais queries (sela, bebe, domado, cavaleiro, variante...) para a lista de bugs de mobs | pendente (jogo) |
 | v47 `dump-pose` | `dump` loga `touched` (ossos tocados pelas animacoes) e `max_rot`: a maioria dos mobs do A&S mostra `bones:` vazio no jogo mesmo andando (cavalo, burro, coelho, ovelha, lhama, breeze, blaze, axolote); separa animacao que nao roda de animacao sem o que mover | pendente (jogo) |
-| v48 `held-frame` | `held_anchor` no `bedrock-debug.json` (`pivot` padrao, `frame`): mace e besta somam +22,5/+23,5 px de altura na animacao (espada −2, vento −4) e ficam ~1,4 bloco acima da mao com o pivo na mao; `frame` poe a origem do modelo na mao | pendente (jogo) |
+| v48 `held-frame` | `held_anchor` no `bedrock-debug.json` (mace/besta ~1,4 bloco acima da mão com o pivô na mão); `HOLD=` no `render_entity`; `tests/synthetic_pack.rs`; vanilla do Mojang como 2º pack: Molang em várias linhas, controller que toca animação de mesmo nome curto (antes recursão infinita no `scan_pack`), `scaleX/Y/Z`, corte de controller que toca a si mesmo ; conversor 11: `terrain_texture.json`, `item_texture.json`, `flipbook_textures.json` | pendente (jogo) |
+| v49 `held-auto` | `held_anchor: auto` (padrão): osso preso sem pai → origem do modelo na mão, com pai → pivô; corrige ovos de spawn; `ANCHOR=auto` no `render_entity` | validado |
+| v50 `defs-rabbit` | várias definições da mesma entidade no pack (um arquivo por `min_engine_version`, cavalo e burro têm 3): vale a de maior versão; `this` de `color` do render controller = 1 (cavalo saía com alfa 0 offline); `q.vertical_speed` parado no chão = 0 (era −1,57 pela gravidade e prendia o estado `fall` de cavalo, burro, axolote); escala embutida do coelho 0,6 (bebê 0,4); blaze: `q.is_charged` = fogo do blaze (flag 16 bit 0 do servidor, `extra.flag` local) e `q.facing_target_to_range_attack` com alvo | pendente (jogo) |

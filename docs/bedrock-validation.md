@@ -29,6 +29,7 @@ Marcar por grupo; anotar a entidade que falhar.
 - [x] Abelha: bebê e adulta ok (v25)
 - [ ] Abelha: asas; ferrão
 - [x] Allay: olho visível
+- [~] Cavalo, burro (animação), coelho (tamanho), axolote (spawn em terra), blaze (fogo, ataque) — v50
 - [ ] Aquáticos: cod, salmon, pufferfish, tropicalfish, squid, glow_squid, dolphin, axolotl, guardian, elder_guardian, nautilus
 - [ ] Mortos-vivos: zombie, husk, drowned, skeleton, stray, bogged, parched, wither_skeleton, zombie_villager, zombie_nautilus, camel_husk, zombie_horse, skeleton_horse
 - [ ] Hostis: creeper (carregado), spider, cave_spider, enderman, endermite, silverfish, slime, magma_cube, blaze, ghast, happy_ghast, phantom, vex, witch, pillager, vindicator, evoker, ravager, shulker, warden, breeze, creaking
@@ -75,6 +76,8 @@ Marcar por grupo; anotar a entidade que falhar.
 - [~] 3ª pessoa: espada e lança aparecem na mão; posição bugada depois da v24
 - [ ] **1ª pessoa**: item e mão com o modelo do pack (hoje só o sprite novo)
 - [~] Item na mão em F5 mostrava o item do jogo e o do pack: v30 esconde o do jogo quando há attachable; posição do attachable pendente
+- [x] Mace, besta e tridente na mão (v49 `auto`, validado no jogo)
+- [x] Bola de vento, espada, ovos de spawn na mão (v49 `auto`, validado no jogo)
 - [ ] Pose do braço segurando (`oreville_mainhand_custom_pos`, `hold_up`)
 - [ ] Mão esquerda (`leftitem`) e off hand
 - [ ] Pickaxe, axe, shovel, hoe, bow, crossbow, trident, shield, fishing rod, bucket, shears
@@ -95,7 +98,8 @@ Marcar por grupo; anotar a entidade que falhar.
 ## Blocos e itens retexturizados
 
 - [x] Sprites de itens e blocos trocados (vanilla → `textures/blocks`, `items`)
-- [ ] Texturas animadas (flipbook): água, lava, fogo, portal
+- [~] Texturas animadas (flipbook): água, lava, fogo, portal (v48: `flipbook_textures.json` vira `.png.mcmeta`; conferir no jogo)
+- [~] Bloco/item com arquivo de outro nome (`terrain_texture.json`, `item_texture.json`, v48)
 - [ ] Céu, nuvens, sol e lua
 - [ ] Folhagem e grama por bioma
 - [ ] Texto de `splashes.json` no título
@@ -126,6 +130,7 @@ Marcar por grupo; anotar a entidade que falhar.
 ## Depuração sem recompilar
 
 - Arquivo `bedrock-debug.json` na pasta do jogo (`%APPDATA%\horizon`; `HORIZON_BEDROCK_DEBUG_FILE` troca). Com `HORIZON_BEDROCK_DEBUG=1` e sem arquivo, um modelo é escrito. Salvar recarrega em até 1 s; o log mostra `bedrock-debug: loaded ...`; chave desconhecida ou JSON inválido: aviso no log, valores anteriores ficam.
+- `held_anchor`: `auto` (padrão: osso preso sem pai → origem do modelo na mão; com pai → pivô), `pivot` ou `frame`.
 - `hide`: sufixos de textura que não desenham. `dump` / `dump_vars`: ids e variáveis `v.*` logados. `materials`: `{"oreville_auulis": {"additive": false}}` força flag por nome (`*` = todos). `queries`: `{"is_powered": 1}` fixa `query.x` para todo mob.
 - IntelliJ/RustRover: pasta `.run/` (Run/Debug direto no código, breakpoints). `$Prompt$` pergunta o caminho do pack.
 - `probe_facing <pack> <entity> <geometry> <osso do disco> <osso da cabeça>`: para cada direção da câmera, mostra para onde apontam a frente da cabeça (que acompanha a câmera) e a do disco; `PITCH=`, `YAWS=`, `Q=`. Diferença do disco igual à da cabeça = convenção de giro correta.

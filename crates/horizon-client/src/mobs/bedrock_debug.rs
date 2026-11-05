@@ -13,7 +13,7 @@
 //!   "dump": ["spider", "enderman"],
 //!   "dump_vars": ["habcyx", "acloko"],
 //!   "dump_bones": ["rightarm", "rightitem"],
-//!   "held_anchor": "frame",
+//!   "held_anchor": "auto",
 //!   "materials": { "oreville_auulis": { "additive": false }, "*": {} },
 //!   "queries": { "is_powered": 1 }
 //! }
@@ -22,7 +22,7 @@
 //! * `hide`: layers whose texture ends with one of these names are not drawn.
 //! * `dump` / `dump_vars`: kinds (part of the id) logged once a second, and the `v.` variables
 //!   logged with them. `dump_bones`: bones (part of the name) whose pose the dump lists.
-//! * `held_anchor`: `"pivot"` or `"frame"`, how held items are put on the hand.
+//! * `held_anchor`: `"auto"`, `"pivot"` or `"frame"`, how held items are put on the hand.
 //! * `materials`: flags forced on a material by its name (`*` for every one): `true` sets it,
 //!   `false` clears it, absent leaves what the pack says.
 //! * `queries`: `query.x` answers this number for every mob, whatever the game says.
@@ -103,9 +103,10 @@ pub struct Settings {
     /// Bones (part of the name) whose pose the dump lists, moved or not, instead of the first
     /// thirty moved ones.
     pub dump_bones: Vec<String>,
-    /// Where what is held sits on the hand: `"pivot"` (default) puts the bound bone's pivot on
-    /// it, `"frame"` puts the model's frame origin (24 sixteenths above a bone modelled at
-    /// zero) on it.
+    /// Where what is held sits on the hand: `"auto"` (default) puts the frame origin on it for a
+    /// bound bone with no parent (the vanilla-made models, whose animations add the 24 sixteenths
+    /// themselves) and the bone's pivot for one under a parent bone; `"pivot"` and `"frame"`
+    /// force one of the two.
     pub held_anchor: String,
     pub materials: HashMap<String, Patch>,
     pub queries: HashMap<String, f32>,
@@ -148,9 +149,14 @@ impl Settings {
         self
     }
 
-    /// Held items sit by the frame origin, not by the bound bone's pivot.
-    pub fn held_by_frame(&self) -> bool {
-        self.held_anchor.eq_ignore_ascii_case("frame")
+    /// Whether a held item's bound bone puts the frame origin on the hand (`true`) or its own
+    /// pivot (`false`); `has_parent` is whether the bone sits under another bone of its model.
+    pub fn held_by_frame(&self, has_parent: bool) -> bool {
+        match self.held_anchor.to_ascii_lowercase().as_str() {
+            "frame" => true,
+            "pivot" => false,
+            _ => !has_parent,
+        }
     }
 
     pub fn hides(&self, texture: &str) -> bool {
@@ -179,13 +185,13 @@ impl Settings {
 }
 
 const TEMPLATE: &str = r#"{
-  "_help": "Salvar recarrega no jogo (1 s). hide: sufixos de textura que nao desenham. dump: ids (parte) logados 1x/s; dump_vars: variaveis v.* logadas junto; dump_bones: ossos (parte do nome) cuja pose entra no dump. held_anchor: 'pivot' (pivo do osso na mao) ou 'frame' (origem do modelo na mao). materials: flags forcadas por nome do material ('*' = todos); true liga, false desliga. queries: query.x fixa em um numero para todo mob.",
+  "_help": "Salvar recarrega no jogo (1 s). hide: sufixos de textura que nao desenham. dump: ids (parte) logados 1x/s; dump_vars: variaveis v.* logadas junto; dump_bones: ossos (parte do nome) cuja pose entra no dump. held_anchor: 'auto' (osso sem pai: origem do modelo na mao; osso com pai: pivo), 'pivot' ou 'frame'. materials: flags forcadas por nome do material ('*' = todos); true liga, false desliga. queries: query.x fixa em um numero para todo mob.",
   "debug": true,
   "hide": [],
   "dump": [],
   "dump_vars": [],
   "dump_bones": [],
-  "held_anchor": "pivot",
+  "held_anchor": "auto",
   "materials": {},
   "queries": {}
 }
@@ -252,12 +258,13 @@ pub fn settings() -> Arc<Settings> {
             Ok(s) => {
                 let s = s.with_env();
                 log::info!(
-                    "bedrock-debug: loaded {}: debug={} hide={:?} dump={:?} dump_vars={:?} materials={:?} queries={:?}",
+                    "bedrock-debug: loaded {}: debug={} hide={:?} dump={:?} dump_vars={:?} held_anchor={:?} materials={:?} queries={:?}",
                     st.path.display(),
                     s.debug,
                     s.hide,
                     s.dump,
                     s.dump_vars,
+                    s.held_anchor,
                     s.materials.keys().collect::<Vec<_>>(),
                     s.queries,
                 );

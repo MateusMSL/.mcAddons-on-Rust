@@ -183,6 +183,17 @@ impl World for Carrier {
     }
 }
 
+/// The size the game gives a mob's model before any `scale` script: the vanilla rabbit's script
+/// reads `1 / 0.6` (`1 / 0.4` for a baby) to cancel it, and a pack that scales the rabbit writes
+/// its own factor on top of the same.
+fn builtin_scale(id: &str, baby: bool) -> f32 {
+    match id {
+        "minecraft:rabbit" if baby => 0.4,
+        "minecraft:rabbit" => 0.6,
+        _ => 1.0,
+    }
+}
+
 /// A mob's box as `[width, height]`.
 fn box_size(m: &Mob) -> [f32; 2] {
     let (w, h, _) = m.dims();
@@ -496,7 +507,7 @@ fn common_query(name: &str, args: &[Value]) -> Value {
 
 /// The engine's build, logged once with `HORIZON_BEDROCK_DEBUG`: tells whether the game runs the
 /// files the last overlay carried.
-pub const ENGINE_BUILD: &str = "v48-held-frame";
+pub const ENGINE_BUILD: &str = "v50-defs-rabbit";
 
 /// `HORIZON_BEDROCK_DUMP=skeleton,creeper`: the kinds (by part of the id) whose state is logged
 /// once a second while within twelve blocks of the camera.
@@ -814,7 +825,16 @@ impl Host for MobHost<'_> {
             }
             "vertical_speed" => {
                 let (v, d) = (m.velocity.y, m.position.y - m.previous.y);
-                Value::Num((if v.abs() >= d.abs() { v } else { d }) as f32 * 20.0)
+                // Gravity keeps pulling a mob on the ground (-0.0784 a tick, -1.57 a second) with
+                // nothing moving it: that is not a fall to the packs.
+                let speed = if m.on_ground && v < 0.0 {
+                    d
+                } else if v.abs() >= d.abs() {
+                    v
+                } else {
+                    d
+                };
+                Value::Num(speed as f32 * 20.0)
             }
             "body_y_rotation" => Value::Num(wrap_degrees(lerp(m.previous_body_yaw, m.body_yaw))),
             // The head's yaw in the world, as `body_y_rotation` is the body's: the packs take
@@ -912,7 +932,11 @@ impl Host for MobHost<'_> {
             // The world's clock is not the mob's to know: noon.
             "time_of_day" => Value::Num(0.5),
             "is_sheared" => Value::bool(m.extra.sheared),
-            "is_powered" | "is_charged" => Value::bool(m.extra.charged),
+            "is_powered" | "is_charged" => Value::bool(if m.species() == super::Species::Blaze {
+                m.extra.flag
+            } else {
+                m.extra.charged
+            }),
             "is_sitting" => Value::bool(m.extra.sitting),
             "sit_amount" => Value::Num(if m.extra.sitting { 1.0 } else { 0.0 }),
             "is_tamed" => Value::bool(m.extra.tame),
@@ -1075,7 +1099,11 @@ impl Host for MobHost<'_> {
                 Value::Num(0.0)
             }
             "time_stamp" => Value::Num(m.age as f32),
-            "facing_target_to_range_attack" => Value::bool(m.extra.using_item > 0),
+            "facing_target_to_range_attack" => Value::bool(if m.species() == super::Species::Blaze {
+                m.extra.flag || m.ai.target.is_some()
+            } else {
+                m.extra.using_item > 0
+            }),
             "item_is_charged" => Value::bool(m.extra.flag2),
             "blocking" => Value::bool(m.extra.using_item > 0 && m.extra.off_hand.is_some()),
             // The properties vanilla's own entities carry, from the Java mob's state.
@@ -1847,7 +1875,7 @@ impl BedrockMobs {
                 }
             }
         }
-        let scale = frame.scale;
+        let scale = frame.scale * builtin_scale(&m.kind.id, m.is_baby());
         let mut held = Held {
             hidden: frame.hide_held_items,
             scale: frame.held_item_scale,

@@ -128,13 +128,20 @@
     <list default="true" id="9fde0035-f60f-4d5c-9819-a4555b0d3701" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/command_history.txt" beforeDir="false" afterPath="$PROJECT_DIR$/command_history.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/examples/list_glow.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/examples/list_glow.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/examples/render_entity.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/examples/render_entity.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/examples/scan_pack.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/examples/scan_pack.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/animation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/animation.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/bundle.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/bundle.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/convert.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/convert.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/entity.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/entity.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/manifest.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/manifest.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/game/remote.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/game/remote.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock_debug.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock_debug.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/render.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/render.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/bedrock-roadmap.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock-roadmap.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/bedrock-validation.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock-validation.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/bedrock.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

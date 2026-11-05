@@ -755,6 +755,54 @@ fn convert_world(pack: &Pack, out: &Path, report: &mut Report) -> Result<()> {
         )?;
         report.world_textures += 1;
     }
+    // `terrain_texture.json` and `item_texture.json` name the file a block or item uses, which a
+    // pack may keep under any name: the file they name is the one the game's sprite gets.
+    for (file, folder) in [
+        ("textures/terrain_texture.json", "block"),
+        ("textures/item_texture.json", "item"),
+    ] {
+        for (key, path) in texture_index(pack, file) {
+            let Some(java) = java_texture(&format!(
+                "textures/{}s/{}",
+                folder,
+                key.to_ascii_lowercase()
+            )) else {
+                continue;
+            };
+            if !valid_name(&java) || key == "missing" {
+                continue;
+            }
+            let Ok(bytes) = pack.read(&format!("{path}.png")) else {
+                continue;
+            };
+            write(&out.join(format!("assets/minecraft/textures/{java}.png")), &bytes)?;
+            report.world_textures += 1;
+        }
+    }
+    // `flipbook_textures.json`: a texture that is a strip of frames. Java's `.png.mcmeta`.
+    for book in flipbooks(pack) {
+        let Some(java) = java_texture(&book.texture.to_ascii_lowercase()) else {
+            continue;
+        };
+        let target = out.join(format!("assets/minecraft/textures/{java}.png"));
+        if !valid_name(&java) || pack.read(&format!("{}.png", book.texture)).is_err() {
+            continue;
+        }
+        write(&target, &pack.read(&format!("{}.png", book.texture))?)?;
+        let mut animation = serde_json::Map::new();
+        if let Some(ticks) = book.ticks {
+            animation.insert("frametime".into(), json!(ticks.round().max(1.0) as i64));
+        }
+        if !book.frames.is_empty() {
+            animation.insert("frames".into(), json!(book.frames));
+        }
+        animation.insert("interpolate".into(), json!(book.blend));
+        write(
+            &out.join(format!("assets/minecraft/textures/{java}.png.mcmeta")),
+            json!({"animation": animation}).to_string().as_bytes(),
+        )?;
+        report.world_textures += 1;
+    }
     // `splashes.json`: `{"splashes": ["..."]}`, Java's `texts/splashes.txt` one to a line.
     if let Ok(v) = pack.read_json("splashes.json")
         && let Some(list) = v.get("splashes").and_then(Value::as_array)
@@ -774,6 +822,66 @@ fn convert_world(pack: &Pack, out: &Path, report: &mut Report) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// A texture that is a strip of frames (`textures/flipbook_textures.json`).
+struct Flipbook {
+    /// `textures/blocks/water_still`.
+    texture: String,
+    ticks: Option<f64>,
+    frames: Vec<i64>,
+    blend: bool,
+}
+
+fn flipbooks(pack: &Pack) -> Vec<Flipbook> {
+    let Ok(v) = pack.read_json("textures/flipbook_textures.json") else {
+        return Vec::new();
+    };
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            Some(Flipbook {
+                texture: e.get("flipbook_texture")?.as_str()?.to_owned(),
+                ticks: e.get("ticks_per_frame").and_then(Value::as_f64),
+                frames: e
+                    .get("frames")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_i64).collect())
+                    .unwrap_or_default(),
+                blend: e.get("blend_frames").and_then(Value::as_bool).unwrap_or(true),
+            })
+        })
+        .collect()
+}
+
+/// What `terrain_texture.json` / `item_texture.json` map: a name to the one texture file it
+/// uses. An entry listing different files is by data value, which Java has no way to say, and
+/// is left to the file names.
+fn texture_index(pack: &Pack, file: &str) -> Vec<(String, String)> {
+    let Ok(v) = pack.read_json(file) else {
+        return Vec::new();
+    };
+    let Some(data) = v.get("texture_data").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    data.iter()
+        .filter_map(|(key, entry)| {
+            let paths: Vec<&str> = match entry.get("textures")? {
+                Value::String(s) => vec![s.as_str()],
+                Value::Array(a) => a
+                    .iter()
+                    .filter_map(|t| t.as_str().or_else(|| t.get("path")?.as_str()))
+                    .collect(),
+                _ => return None,
+            };
+            let first = *paths.first()?;
+            paths
+                .iter()
+                .all(|p| *p == first)
+                .then(|| (key.clone(), first.to_owned()))
+        })
+        .collect()
 }
 
 /// The folder under `assets/horizon_bedrock/` that holds one pack's data: its UUID, so that
@@ -808,7 +916,7 @@ fn convert_settings(pack: &Pack, out: &Path) -> Result<()> {
 
 /// Bumped whenever the conversion's output changes, so packs converted by an older engine
 /// convert again instead of coming out of the cache.
-pub const CONVERTER_REVISION: u64 = 10;
+pub const CONVERTER_REVISION: u64 = 11;
 
 /// A folder name for a converted pack: stable for the same input, different for others.
 pub fn cache_name(source: &Path, modified_secs: u64, size: u64) -> PathBuf {
