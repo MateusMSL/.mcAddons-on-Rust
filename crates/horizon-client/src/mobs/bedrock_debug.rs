@@ -12,6 +12,8 @@
 //!   "hide": ["crv"],
 //!   "dump": ["spider", "enderman"],
 //!   "dump_vars": ["habcyx", "acloko"],
+//!   "dump_bones": ["rightarm", "rightitem"],
+//!   "held_anchor": "frame",
 //!   "materials": { "oreville_auulis": { "additive": false }, "*": {} },
 //!   "queries": { "is_powered": 1 }
 //! }
@@ -19,7 +21,8 @@
 //!
 //! * `hide`: layers whose texture ends with one of these names are not drawn.
 //! * `dump` / `dump_vars`: kinds (part of the id) logged once a second, and the `v.` variables
-//!   logged with them.
+//!   logged with them. `dump_bones`: bones (part of the name) whose pose the dump lists.
+//! * `held_anchor`: `"pivot"` or `"frame"`, how held items are put on the hand.
 //! * `materials`: flags forced on a material by its name (`*` for every one): `true` sets it,
 //!   `false` clears it, absent leaves what the pack says.
 //! * `queries`: `query.x` answers this number for every mob, whatever the game says.
@@ -97,6 +100,13 @@ pub struct Settings {
     pub hide: Vec<String>,
     pub dump: Vec<String>,
     pub dump_vars: Vec<String>,
+    /// Bones (part of the name) whose pose the dump lists, moved or not, instead of the first
+    /// thirty moved ones.
+    pub dump_bones: Vec<String>,
+    /// Where what is held sits on the hand: `"pivot"` (default) puts the bound bone's pivot on
+    /// it, `"frame"` puts the model's frame origin (24 sixteenths above a bone modelled at
+    /// zero) on it.
+    pub held_anchor: String,
     pub materials: HashMap<String, Patch>,
     pub queries: HashMap<String, f32>,
 }
@@ -131,10 +141,16 @@ impl Settings {
         self.dump
             .extend(list("HORIZON_BEDROCK_DUMP").into_iter().map(|k| k.to_ascii_lowercase()));
         self.dump_vars.extend(list("HORIZON_BEDROCK_DUMP_VARS"));
+        self.dump_bones.extend(list("HORIZON_BEDROCK_DUMP_BONES"));
         for k in &mut self.dump {
             k.make_ascii_lowercase();
         }
         self
+    }
+
+    /// Held items sit by the frame origin, not by the bound bone's pivot.
+    pub fn held_by_frame(&self) -> bool {
+        self.held_anchor.eq_ignore_ascii_case("frame")
     }
 
     pub fn hides(&self, texture: &str) -> bool {
@@ -163,11 +179,13 @@ impl Settings {
 }
 
 const TEMPLATE: &str = r#"{
-  "_help": "Salvar recarrega no jogo (1 s). hide: sufixos de textura que nao desenham. dump: ids (parte) logados 1x/s; dump_vars: variaveis v.* logadas junto. materials: flags forcadas por nome do material ('*' = todos); true liga, false desliga. queries: query.x fixa em um numero para todo mob.",
+  "_help": "Salvar recarrega no jogo (1 s). hide: sufixos de textura que nao desenham. dump: ids (parte) logados 1x/s; dump_vars: variaveis v.* logadas junto; dump_bones: ossos (parte do nome) cuja pose entra no dump. held_anchor: 'pivot' (pivo do osso na mao) ou 'frame' (origem do modelo na mao). materials: flags forcadas por nome do material ('*' = todos); true liga, false desliga. queries: query.x fixa em um numero para todo mob.",
   "debug": true,
   "hide": [],
   "dump": [],
   "dump_vars": [],
+  "dump_bones": [],
+  "held_anchor": "pivot",
   "materials": {},
   "queries": {}
 }

@@ -127,14 +127,14 @@
   <component name="ChangeListManager">
     <list default="true" id="9fde0035-f60f-4d5c-9819-a4555b0d3701" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command_history.txt" beforeDir="false" afterPath="$PROJECT_DIR$/command_history.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/examples/list_glow.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/examples/list_glow.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-bedrock/src/convert.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-bedrock/src/convert.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crates/horizon-client-render/src/entity.wgsl" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client-render/src/entity.wgsl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crates/horizon-client-render/src/gfx.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client-render/src/gfx.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crates/horizon-client-render/src/gfx/entity_batch.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client-render/src/gfx/entity_batch.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock_debug.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/bedrock_debug.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crates/horizon-client/src/mobs/render.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/horizon-client/src/mobs/render.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/bedrock-roadmap.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock-roadmap.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/bedrock-validation.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/bedrock-validation.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

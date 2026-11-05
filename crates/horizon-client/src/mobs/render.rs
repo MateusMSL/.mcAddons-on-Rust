@@ -131,6 +131,12 @@ fn tag_bedrock_material(
         vertex.layer |= bits;
     }
 }
+/// Whether a material draws a texture's alpha as nothing: without a blend, an add or an alpha test
+/// it paints every texel it samples, so a texel at alpha 157 or 2 (a charged creeper's skin and
+/// its white face) shows opaque, and an emissive-alpha one reads its alpha as glow, not as cover.
+fn ignores_alpha(flags: &horizon_bedrock::material::MaterialFlags) -> bool {
+    !flags.blend && !flags.additive && (flags.emissive_alpha || !flags.alpha_test)
+}
 /// Whether the species' model is built with `RenderTypes::entityTranslucent`
 /// (`Model.renderType`, which `LivingEntityRenderer.getRenderType` uses for the
 /// body): the allay, the piglins, the breeze, the vex, the player model and the
@@ -1573,6 +1579,25 @@ pub fn held_anchor(bone: glam::Mat4, scale: f32) -> glam::Mat4 {
     bone * glam::Mat4::from_scale(glam::Vec3::splat(scale))
         * glam::Mat4::from_translation(glam::Vec3::new(0.0, -MODEL_FEET, 0.0))
 }
+/// `held_anchor` for a bound bone modelled around `pivot` (the bone's rest position in the
+/// baked frame, in blocks): the game puts the bone's pivot on the hand, not the model's origin.
+/// A bone pivoted at the origin gives `held_anchor`'s `(0, MODEL_FEET, 0)`; one pivoted at the
+/// model's 24 sixteenths (a trident modelled around its own height) gives zero.
+pub fn held_anchor_at(bone: glam::Mat4, scale: f32, pivot: glam::Vec3) -> glam::Mat4 {
+    bone * glam::Mat4::from_scale(glam::Vec3::splat(scale)) * glam::Mat4::from_translation(-pivot)
+}
+/// The rest position of the part called `name` in the baked frame, in blocks (its own and its
+/// ancestors' positions added).
+pub fn rest_pivot(part: &Part, name: &str) -> Option<glam::Vec3> {
+    fn walk(part: &Part, from: glam::Vec3, name: &str) -> Option<glam::Vec3> {
+        let here = from + glam::Vec3::new(part.pose[0], part.pose[1], part.pose[2]) / 16.0;
+        if part.name == name {
+            return Some(here);
+        }
+        part.children.iter().find_map(|c| walk(c, here, name))
+    }
+    walk(part, glam::Vec3::ZERO, name)
+}
 /// The feet line of a baked model, in blocks (a Java model's origin is 24 sixteenths above the feet).
 const MODEL_FEET: f32 = 24.0 / 16.0;
 /// An attachable's parts: a bone with a binding is drawn where the holder's bone it follows
@@ -2189,7 +2214,7 @@ fn hidden_layer(texture: &str) -> bool {
     super::bedrock_debug::settings().hides(texture)
 }
 
-fn log_bedrock_once(key: String, line: impl FnOnce() -> String) {
+pub(super) fn log_bedrock_once(key: String, line: impl FnOnce() -> String) {
     static SEEN: std::sync::Mutex<Option<std::collections::HashSet<String>>> =
         std::sync::Mutex::new(None);
     let mut seen = SEEN
@@ -2230,6 +2255,13 @@ fn render_bedrock(
     if bedrock.is_empty() {
         return false;
     }
+    // `PhantomRenderer.scale` moves the game's model down into its box (it is modelled 1.3125
+    // blocks above the feet); a pack's model starts at the feet, so that move is taken back.
+    let base = if m.species() == Species::Phantom {
+        base * glam::Mat4::from_translation(glam::Vec3::new(0.0, -1.3125, -0.1875))
+    } else {
+        base
+    };
     let Some(frame) = bedrock.frame(m, alpha, base.w_axis.truncate().to_array()) else {
         return false;
     };
@@ -2340,6 +2372,11 @@ fn render_bedrock(
                 }
             }
             let flags = *group;
+            // The second texture of a render controller is read only by a multitexture
+            // material (a mask laid over the first); any other material draws the first alone.
+            if layer.layer.secondary && !flags.multitexture {
+                continue;
+            }
             // A mask that writes no colour draws nothing to see (what it stencils is not
             // tracked past the layers that test it, which show only past a body).
             if flags.no_color {
@@ -2366,7 +2403,7 @@ fn render_bedrock(
             // is drawn from the texture with those texels opaque.
             // (A material that also blends or adds, an eye's soft glow, keeps its alpha: there it
             // is how see-through the glow is.)
-            let uv = if flags.emissive_alpha && !flags.blend && !flags.additive && found.is_some() {
+            let uv = if ignores_alpha(&flags) && found.is_some() {
                 atlas(&format!("{}_solid", layer.texture)).unwrap_or(uv)
             } else {
                 uv
@@ -2573,7 +2610,17 @@ fn render_bedrock(
             // and all. Worn pieces are modelled where they sit on the holder (a helmet over
             // the head), so they only follow the bone's change from rest.
             Some(if in_hand && att.binds.contains_key(bone) {
-                base * held_anchor(*now, hand_scale)
+                // The bone's pivot lands on the hand; a bone left at the origin keeps the
+                // feet-line anchor.
+                let pivot = if super::bedrock_debug::settings().held_by_frame() {
+                    glam::Vec3::ZERO
+                } else {
+                    att.layers
+                        .iter()
+                        .find_map(|l| rest_pivot(&l.built.part, bone))
+                        .unwrap_or(glam::Vec3::new(0.0, MODEL_FEET, 0.0))
+                };
+                base * held_anchor_at(*now, hand_scale, pivot)
             } else {
                 base * *now * held * rest.inverse()
             })
@@ -2581,11 +2628,41 @@ fn render_bedrock(
         let mut layers_on = 0usize;
         for layer in &att.layers {
             if layer.layer.color[3] <= 0.0 {
+                if bedrock_debug() {
+                    log_bedrock_once(
+                        format!("{}/{}/{}/alpha", m.kind.id, att.slot, layer.layer.geometry),
+                        || {
+                            format!(
+                                "{}: {} layer {} ({}) skipped: color alpha {}",
+                                m.kind.id,
+                                att.slot,
+                                layer.layer.geometry,
+                                layer.texture,
+                                layer.layer.color[3]
+                            )
+                        },
+                    );
+                }
                 continue;
             }
             let Some(uv) =
                 atlas(&layer.texture).or_else(|| layer.fallback.as_deref().and_then(atlas))
             else {
+                if bedrock_debug() {
+                    log_bedrock_once(
+                        format!("{}/{}/{}/atlas", m.kind.id, att.slot, layer.layer.geometry),
+                        || {
+                            format!(
+                                "{}: {} layer {} skipped: texture {} (fallback {:?}) is in neither the pack nor the game",
+                                m.kind.id,
+                                att.slot,
+                                layer.layer.geometry,
+                                layer.texture,
+                                layer.fallback
+                            )
+                        },
+                    );
+                }
                 continue;
             };
             poses.reset(&layer.built.part);
@@ -2597,7 +2674,26 @@ fn render_bedrock(
             }
             let flags =
                 super::bedrock_debug::flags(&bedrock.bundle().materials, &layer.layer.material);
-            let uv = if flags.emissive_alpha && !flags.blend && !flags.additive {
+            // Only a multitexture material reads a controller's second texture.
+            if layer.layer.secondary && !flags.multitexture {
+                if bedrock_debug() {
+                    log_bedrock_once(
+                        format!("{}/{}/{}/second", m.kind.id, att.slot, layer.layer.geometry),
+                        || {
+                            format!(
+                                "{}: {} layer {} ({}) skipped: second texture of a material without multitexture ({})",
+                                m.kind.id,
+                                att.slot,
+                                layer.layer.geometry,
+                                layer.texture,
+                                layer.layer.material
+                            )
+                        },
+                    );
+                }
+                continue;
+            }
+            let uv = if ignores_alpha(&flags) {
                 atlas(&format!("{}_solid", layer.texture)).unwrap_or(uv)
             } else {
                 uv

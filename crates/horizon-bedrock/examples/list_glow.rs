@@ -20,7 +20,7 @@ fn main() {
             if let Ok(v) = pack.read_json(&p) {
                 mats.add_file(&v);
             }
-        } else if p.starts_with("entity/")
+        } else if (p.starts_with("entity/") || p.starts_with("attachables/"))
             && p.ends_with(".json")
             && let Ok(v) = pack.read_json(&p)
             && let Some(d) = ClientEntity::parse(&v)
@@ -36,6 +36,9 @@ fn main() {
             let mut t = Vec::new();
             if f.additive {
                 t.push("add");
+            }
+            if f.alpha_test {
+                t.push("at");
             }
             if f.emissive {
                 t.push("emis");

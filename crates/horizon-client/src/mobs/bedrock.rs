@@ -496,7 +496,7 @@ fn common_query(name: &str, args: &[Value]) -> Value {
 
 /// The engine's build, logged once with `HORIZON_BEDROCK_DEBUG`: tells whether the game runs the
 /// files the last overlay carried.
-pub const ENGINE_BUILD: &str = "v38-tga-faint";
+pub const ENGINE_BUILD: &str = "v48-held-frame";
 
 /// `HORIZON_BEDROCK_DUMP=skeleton,creeper`: the kinds (by part of the id) whose state is logged
 /// once a second while within twelve blocks of the camera.
@@ -525,6 +525,26 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
         "is_on_ground",
         "swell_amount",
         "is_powered",
+        "is_saddled",
+        "is_baby",
+        "is_tamed",
+        "has_rider",
+        "is_riding",
+        "is_charged",
+        "is_angry",
+        "is_sheared",
+        "is_sleeping",
+        "is_sitting",
+        "is_alive",
+        "is_on_fire",
+        "is_attached",
+        "variant",
+        "mark_variant",
+        "skin_id",
+        "body_x_rotation",
+        "body_y_rotation",
+        "yaw_speed",
+        "life_time",
     ] {
         let v = host.query(name, &[]);
         let _ = write!(q, " {name}={}", v.num());
@@ -537,11 +557,21 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
         m.hurt_time,
         m.death_time
     );
+    let settings = super::bedrock_debug::settings();
+    let wanted: Vec<String> = settings
+        .dump_bones
+        .iter()
+        .map(|n| n.to_ascii_lowercase())
+        .collect();
     let mut bones: Vec<_> = frame
         .pose
         .bones
         .iter()
-        .filter(|(_, b)| {
+        .filter(|(name, b)| {
+            if !wanted.is_empty() {
+                let name = name.to_ascii_lowercase();
+                return wanted.iter().any(|w| name.contains(w.as_str()));
+            }
             b.rotation
                 .iter()
                 .chain(&b.rotation_entity)
@@ -552,7 +582,7 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
         .collect();
     bones.sort_by(|a, b| a.0.cmp(b.0));
     let mut b = String::new();
-    for (name, p) in bones.iter().take(30) {
+    for (name, p) in bones.iter().take(if wanted.is_empty() { 30 } else { 80 }) {
         let _ = write!(
             b,
             " {name}(rot={:?} ent={:?} pos={:?} sc={:?})",
@@ -562,6 +592,16 @@ fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame
             p.scale.map(|v| (v * 100.0).round() / 100.0),
         );
     }
+    // How many bones the animations touched at all, and the biggest turn among them: tells an
+    // animation that never ran from one that ran with nothing to move.
+    let touched = frame.pose.bones.len();
+    let biggest = frame
+        .pose
+        .bones
+        .values()
+        .flat_map(|b| b.rotation.iter().chain(&b.rotation_entity))
+        .fold(0.0f32, |a, v| a.max(v.abs()));
+    let _ = write!(b, " [touched={touched} max_rot={biggest:.2}]");
     let layers: Vec<String> = frame
         .layers
         .iter()
@@ -1920,7 +1960,17 @@ impl BedrockMobs {
                 .layers
                 .into_iter()
                 .filter_map(|layer| {
-                    let built = self.built(&layer.geometry)?;
+                    let Some(built) = self.built(&layer.geometry) else {
+                        if super::bedrock_debug::debug() {
+                            super::render::log_bedrock_once(format!("{}/{}/{}", m.kind.id, slot, layer.geometry), || {
+                                format!(
+                                    "{}: {slot} layer {} ({}) dropped: the geometry is not in the pack",
+                                    m.kind.id, layer.geometry, layer.texture
+                                )
+                            });
+                        }
+                        return None;
+                    };
                     Some(DrawLayer {
                         built,
                         texture: atlas_name(&layer.texture),

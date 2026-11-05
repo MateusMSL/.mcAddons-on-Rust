@@ -128,3 +128,5 @@ Marcar por grupo; anotar a entidade que falhar.
 - Arquivo `bedrock-debug.json` na pasta do jogo (`%APPDATA%\horizon`; `HORIZON_BEDROCK_DEBUG_FILE` troca). Com `HORIZON_BEDROCK_DEBUG=1` e sem arquivo, um modelo é escrito. Salvar recarrega em até 1 s; o log mostra `bedrock-debug: loaded ...`; chave desconhecida ou JSON inválido: aviso no log, valores anteriores ficam.
 - `hide`: sufixos de textura que não desenham. `dump` / `dump_vars`: ids e variáveis `v.*` logados. `materials`: `{"oreville_auulis": {"additive": false}}` força flag por nome (`*` = todos). `queries`: `{"is_powered": 1}` fixa `query.x` para todo mob.
 - IntelliJ/RustRover: pasta `.run/` (Run/Debug direto no código, breakpoints). `$Prompt$` pergunta o caminho do pack.
+- `probe_facing <pack> <entity> <geometry> <osso do disco> <osso da cabeça>`: para cada direção da câmera, mostra para onde apontam a frente da cabeça (que acompanha a câmera) e a do disco; `PITCH=`, `YAWS=`, `Q=`. Diferença do disco igual à da cabeça = convenção de giro correta.
+- `list_glow <pack>`: mobs e attachables (`(att)`) cujos materiais somam luz, emitem ou misturam.

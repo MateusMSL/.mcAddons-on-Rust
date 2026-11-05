@@ -215,23 +215,97 @@ pub fn referenced_textures(pack: &Pack) -> BTreeSet<String> {
     out
 }
 
-/// Finds a texture's file (`.png`, `.tga`) and returns it as PNG bytes.
+/// Finds a texture's file (`.png`, `.tga`) and returns it as PNG bytes, no bigger than the
+/// game's atlas takes.
 fn texture_png(pack: &Pack, texture: &str, lift: bool) -> Option<Vec<u8>> {
-    if let Ok(b) = pack.read(&format!("{texture}.png")) {
-        return Some(if lift {
-            lift_faint_alpha(&b).unwrap_or(b)
-        } else {
-            b
-        });
-    }
-    let tga = pack.read(&format!("{texture}.tga")).ok()?;
-    let img = decode_tga(&tga)?;
-    let png = encode_png(&img)?;
-    // A TGA's faint texels (an eye painted at alpha 3) are lifted like a PNG's.
+    let png = if let Ok(b) = pack.read(&format!("{texture}.png")) {
+        b
+    } else {
+        let tga = pack.read(&format!("{texture}.tga")).ok()?;
+        encode_png(&decode_tga(&tga)?)?
+    };
+    let png = fit_to_atlas(&png).unwrap_or(png);
+    // A texture's faint texels (an eye painted at alpha 3) are lifted.
     Some(if lift {
         lift_faint_alpha(&png).unwrap_or(png)
     } else {
         png
+    })
+}
+
+/// The widest and tallest texture the game's atlas packs (`HudAtlas::pack`): a bigger one is
+/// left out of it, and a model wearing it is not drawn.
+const ATLAS_MAX_WIDTH: u32 = 1024;
+const ATLAS_MAX_HEIGHT: u32 = 512;
+
+/// The side factor (a power of two) that brings a `width` x `height` texture within the atlas.
+fn atlas_shrink(width: u32, height: u32) -> u32 {
+    let mut factor = 1;
+    while width.div_ceil(factor) > ATLAS_MAX_WIDTH || height.div_ceil(factor) > ATLAS_MAX_HEIGHT {
+        factor *= 2;
+    }
+    factor
+}
+
+/// A texture past the atlas's size, averaged down by a whole factor (a model's UVs are
+/// fractions of its texture, so it still wears the same picture). `None` when it fits.
+fn fit_to_atlas(png_bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let (w, h) = (reader.info().width, reader.info().height);
+    let factor = atlas_shrink(w, h);
+    if factor == 1 {
+        return None;
+    }
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let src = &buf[..info.buffer_size()];
+    let rgba = |i: usize| -> [u32; 4] {
+        match info.color_type {
+            png::ColorType::Rgba => {
+                [src[i * 4].into(), src[i * 4 + 1].into(), src[i * 4 + 2].into(), src[i * 4 + 3].into()]
+            }
+            png::ColorType::Rgb => [src[i * 3].into(), src[i * 3 + 1].into(), src[i * 3 + 2].into(), 255],
+            png::ColorType::GrayscaleAlpha => {
+                [src[i * 2].into(), src[i * 2].into(), src[i * 2].into(), src[i * 2 + 1].into()]
+            }
+            _ => [src[i].into(), src[i].into(), src[i].into(), 255],
+        }
+    };
+    let (nw, nh) = (w.div_ceil(factor), h.div_ceil(factor));
+    let mut out = Vec::with_capacity((nw * nh * 4) as usize);
+    for y in 0..nh {
+        for x in 0..nw {
+            let (mut sum, mut alpha, mut count) = ([0u64; 3], 0u64, 0u64);
+            for sy in (y * factor)..((y + 1) * factor).min(h) {
+                for sx in (x * factor)..((x + 1) * factor).min(w) {
+                    let p = rgba((sy * w + sx) as usize);
+                    let a = u64::from(p[3]);
+                    for c in 0..3 {
+                        sum[c] += u64::from(p[c]) * a;
+                    }
+                    alpha += a;
+                    count += 1;
+                }
+            }
+            if alpha == 0 {
+                out.extend_from_slice(&[0, 0, 0, 0]);
+            } else {
+                for c in sum {
+                    out.push((c / alpha) as u8);
+                }
+                out.push((alpha / count) as u8);
+            }
+        }
+    }
+    encode_png(&Image {
+        width: nw,
+        height: nh,
+        rgba: out,
     })
 }
 
@@ -315,15 +389,18 @@ fn lift_faint_alpha(png_bytes: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let pixels = &mut buf[..info.buffer_size()];
-    let (mut faint, mut translucent) = (false, false);
+    let (mut faint, mut solid, mut translucent) = (0usize, 0usize, false);
     for px in pixels.chunks_exact(4) {
         match px[3] {
-            1..=FAINT_ALPHA => faint = true,
-            a if a > FAINT_ALPHA && a < 255 => translucent = true,
+            1..=FAINT_ALPHA => faint += 1,
+            255 => solid += 1,
+            a if a > FAINT_ALPHA => translucent = true,
             _ => {}
         }
     }
-    if !faint || translucent {
+    // Faint texels that outnumber the solid ones are a filler (a profession's clothes sit on
+    // white at alpha 1): the pack means them clear, not an eye to show.
+    if faint == 0 || translucent || (solid > 0 && faint > solid) {
         return None;
     }
     for px in pixels.chunks_exact_mut(4) {
@@ -731,7 +808,7 @@ fn convert_settings(pack: &Pack, out: &Path) -> Result<()> {
 
 /// Bumped whenever the conversion's output changes, so packs converted by an older engine
 /// convert again instead of coming out of the cache.
-pub const CONVERTER_REVISION: u64 = 8;
+pub const CONVERTER_REVISION: u64 = 10;
 
 /// A folder name for a converted pack: stable for the same input, different for others.
 pub fn cache_name(source: &Path, modified_secs: u64, size: u64) -> PathBuf {
@@ -806,6 +883,27 @@ mod tests {
             "entity/equipment/wings/elytra"
         );
         assert_eq!(java_texture("ui/x"), None);
+    }
+
+    #[test]
+    fn a_texture_past_the_atlas_is_averaged_down_by_a_power_of_two() {
+        assert_eq!(atlas_shrink(1024, 512), 1);
+        assert_eq!(atlas_shrink(1024, 1024), 2);
+        assert_eq!(atlas_shrink(3072, 128), 4);
+        assert_eq!(atlas_shrink(64, 880), 2);
+        let mut rgba = Vec::new();
+        for y in 0..1024u32 {
+            for x in 0..1024u32 {
+                rgba.extend_from_slice(if (x + y) % 2 == 0 { &[200, 0, 0, 255] } else { &[0, 0, 0, 0] });
+            }
+        }
+        let png = encode_png(&Image { width: 1024, height: 1024, rgba }).unwrap();
+        let small = fit_to_atlas(&png).unwrap();
+        let px = decode_png_for_test(&small);
+        assert_eq!(px.len(), 512 * 512);
+        // Half the texels are opaque red: the colour stays red, the alpha halves.
+        assert_eq!(px[0], [200, 0, 0, 127]);
+        assert!(fit_to_atlas(&small).is_none());
     }
 
     #[test]
@@ -911,6 +1009,14 @@ mod tests {
             [1, 2, 3, 255],
         ]);
         assert!(lift_faint_alpha(&glow).is_none());
+        // A filler of faint texels, more than the solid ones: left clear.
+        let filler = png([
+            [255, 255, 255, 1],
+            [255, 255, 255, 1],
+            [9, 9, 9, 255],
+            [0, 0, 0, 0],
+        ]);
+        assert!(lift_faint_alpha(&filler).is_none());
         // Nothing faint, nothing to do.
         let plain = png([
             [255, 255, 255, 0],
