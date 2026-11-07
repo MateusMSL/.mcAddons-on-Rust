@@ -931,7 +931,22 @@ impl Instance {
                     self.main_geometry = Some(layer.geometry.clone());
                 }
                 resolve_entity_rotations(g, &mut frame.pose);
-                (self.origins, self.pivots, self.rotations) = bone_origins(g, &frame.pose);
+                let (origins, pivots, rotations) = bone_origins(g, &frame.pose);
+                // What `pre_animation` reads of the last frame is the mean of the last two: a
+                // pack that lifts a bone by where another one was (`root` by the legs' height)
+                // reads its own lift back with the sign turned, and alternates from frame to
+                // frame (the rider flickering on its mount) unless it is averaged out.
+                self.origins = origins
+                    .into_iter()
+                    .map(|(name, now)| {
+                        let mean = self.origins.get(&name).map_or(now, |old| {
+                            std::array::from_fn(|i| (now[i] + old[i]) * 0.5)
+                        });
+                        (name, mean)
+                    })
+                    .collect();
+                self.pivots = pivots;
+                self.rotations = rotations;
             }
         }
         frame

@@ -2867,6 +2867,9 @@ struct Game<'a> {
     /// a seat is taken (`Entity.moveTo`, no camera sweep) from the ones that
     /// follow it (`positionRider`, interpolated as usual).
     posed_rider: Option<u32>,
+    /// Where the ridden mount last seated the player: the next tick's start, whatever the player's
+    /// own physics did to its position meanwhile.
+    rider_seat: Vec3,
     /// The vehicle the player's file names, waiting for it to be in the world
     /// (`ServerPlayer.loadAndSpawnParentVehicle`).
     pending_vehicle: Option<[i32; 4]>,
@@ -11077,6 +11080,7 @@ impl Game<'_> {
         self.mark_player(out.len(), !self.own_body_in_view());
         let player_start = out.len();
         self.player_model_geometry(camera, self.clock.camera_fraction(), &mut out);
+        self.trace_rider_frame(camera, self.clock.camera_fraction());
         // A native pack has no per-entity draws to hide it with: its shadow pass alone gets
         // the first-person model.
         if self.pack_ids.is_none() && !self.own_body_in_view() {
@@ -14304,6 +14308,28 @@ impl Game<'_> {
             } else {
                 horizon_client::cit::Hand::Main
             };
+            // The pack's attachable for this item, drawn as it dresses the first-person view
+            // model, in place of the game's own model.
+            if let Some(player) = self.player_model.as_ref() {
+                let sprites = &self.gui.atlas.sprites;
+                let lookup = |name: &str| sprites.get(name).map(|r| [r.u0, r.v0, r.u1, r.v1]);
+                let mut dressed = Vec::new();
+                if horizon_client::mobs::render::first_person_item(
+                    player,
+                    &stack.item,
+                    hand == Hand::Off,
+                    a,
+                    m,
+                    &lookup,
+                    packed,
+                    self.res.mob_data(),
+                    &mut dressed,
+                ) {
+                    runs.push((out.len() as u32, item_id));
+                    out.append(&mut dressed);
+                    continue;
+                }
+            }
             let state = self.resolve_item_in_hand(&stack, context, Some(&owner), seed, cit_hand);
             runs.push((out.len() as u32, item_id));
             let light = self.world.light(
@@ -19240,6 +19266,7 @@ impl<'a> Game<'a> {
             cart_models: prepared.cart_models,
             riding: None,
             posed_rider: None,
+            rider_seat: Vec3::ZERO,
             pending_vehicle: None,
             ender_items: vec![None; 27],
             ender_open: None,

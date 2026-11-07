@@ -29,7 +29,8 @@ Marcar por grupo; anotar a entidade que falhar.
 - [x] Abelha: bebê e adulta ok (v25)
 - [ ] Abelha: asas; ferrão
 - [x] Allay: olho visível
-- [~] Cavalo, burro (animação), coelho (tamanho), axolote (spawn em terra), blaze (fogo, ataque) — v50
+- [x] Cavalo, burro (animação), coelho (tamanho), axolote (spawn em terra) — v50 validado
+- [~] Blaze (animação de ataque) e jogador montado (barco, vagoneta, cavalo, burro) — v51
 - [ ] Aquáticos: cod, salmon, pufferfish, tropicalfish, squid, glow_squid, dolphin, axolotl, guardian, elder_guardian, nautilus
 - [ ] Mortos-vivos: zombie, husk, drowned, skeleton, stray, bogged, parched, wither_skeleton, zombie_villager, zombie_nautilus, camel_husk, zombie_horse, skeleton_horse
 - [ ] Hostis: creeper (carregado), spider, cave_spider, enderman, endermite, silverfish, slime, magma_cube, blaze, ghast, happy_ghast, phantom, vex, witch, pillager, vindicator, evoker, ravager, shulker, warden, breeze, creaking

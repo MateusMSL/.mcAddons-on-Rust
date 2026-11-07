@@ -3566,7 +3566,7 @@ impl Game<'_> {
                     // Blaze.DATA_FLAGS_ID, bit 0: on fire, which a pack reads as `is_charged`.
                     for (index, _, value) in &p.values {
                         if let (16, Value::Byte(flags)) = (index, value) {
-                            m.extra.flag = flags & 1 != 0;
+                            horizon_client::mobs::nether::set_blaze_charged(m, flags & 1 != 0);
                         }
                     }
                 }

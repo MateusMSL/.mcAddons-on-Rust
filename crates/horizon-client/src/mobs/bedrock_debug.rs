@@ -14,6 +14,7 @@
 //!   "dump_vars": ["habcyx", "acloko"],
 //!   "dump_bones": ["rightarm", "rightitem"],
 //!   "held_anchor": "auto",
+//!   "trace_rider": false,
 //!   "materials": { "oreville_auulis": { "additive": false }, "*": {} },
 //!   "queries": { "is_powered": 1 }
 //! }
@@ -22,7 +23,11 @@
 //! * `hide`: layers whose texture ends with one of these names are not drawn.
 //! * `dump` / `dump_vars`: kinds (part of the id) logged once a second, and the `v.` variables
 //!   logged with them. `dump_bones`: bones (part of the name) whose pose the dump lists.
+//! * `first_person_off`, `fp_offset`, `fp_rotate`, `fp_scale`: the pack's attachable in the first-person hand (shift in blocks, turn in degrees x,y,z, scale).
 //! * `held_anchor`: `"auto"`, `"pivot"` or `"frame"`, how held items are put on the hand.
+//! * `trace_rider`: while riding, writes `rider-trace.log` (the logs folder): `rider-trace-frame` (every
+//!   frame), `rider-trace-tick` and `rider-trace-pose` (the mount's and the rider's bones, as
+//!   `dump_bones` names them, else root/waist/body/head) lines: the mount's and the rider's old/new/drawn heights and yaws, to find a tremor.
 //! * `materials`: flags forced on a material by its name (`*` for every one): `true` sets it,
 //!   `false` clears it, absent leaves what the pack says.
 //! * `queries`: `query.x` answers this number for every mob, whatever the game says.
@@ -108,6 +113,17 @@ pub struct Settings {
     /// themselves) and the bone's pivot for one under a parent bone; `"pivot"` and `"frame"`
     /// force one of the two.
     pub held_anchor: String,
+    /// `true` leaves the first-person hand on the game's own item models (the pack's attachable
+    /// draws it by default).
+    pub first_person_off: bool,
+    /// Where a pack's attachable sits on the first-person hand, from the game's hand pose: the
+    /// shift in blocks, the turn in degrees (x, y, z) and the scale (1 when empty).
+    pub fp_offset: Vec<f32>,
+    pub fp_rotate: Vec<f32>,
+    pub fp_scale: Option<f32>,
+    /// Writes `rider-trace.log` (logs folder, every frame and tick) while the player rides: heights, yaws and
+    /// the seat of the mount and of the rider's model.
+    pub trace_rider: bool,
     pub materials: HashMap<String, Patch>,
     pub queries: HashMap<String, f32>,
 }
@@ -159,6 +175,25 @@ impl Settings {
         }
     }
 
+    /// The first-person item's own matrix on the hand: the shift and turn from the file, then
+    /// `orient` (the item stood upright, `mobs::render::stand_upright`), at the file's scale.
+    pub fn first_person_matrix(&self, orient: glam::Mat4) -> glam::Mat4 {
+        let at = |v: &[f32], i: usize| v.get(i).copied().unwrap_or(0.0);
+        // Where the first-person hand holds a tool, from the game's hand pose: a little to the
+        // left and lower than the game's own items, with the tool turned 14 degrees clockwise
+        // (as seen from the eye) so it stands straight.
+        let offset = if self.fp_offset.is_empty() { &[-0.12, -0.12, 0.0][..] } else { &self.fp_offset[..] };
+        let rotate = if self.fp_rotate.is_empty() { &[0.0, 0.0, -6.0][..] } else { &self.fp_rotate[..] };
+        glam::Mat4::from_translation(glam::Vec3::new(at(offset, 0), at(offset, 1), at(offset, 2)))
+            * glam::Mat4::from_euler(
+                glam::EulerRot::YXZ,
+                at(rotate, 1).to_radians(),
+                at(rotate, 0).to_radians(),
+                at(rotate, 2).to_radians(),
+            ) * glam::Mat4::from_scale(glam::Vec3::splat(self.fp_scale.unwrap_or(0.8)))
+            * orient
+    }
+
     pub fn hides(&self, texture: &str) -> bool {
         self.hide.iter().any(|h| texture.ends_with(h.as_str()))
     }
@@ -192,6 +227,7 @@ const TEMPLATE: &str = r#"{
   "dump_vars": [],
   "dump_bones": [],
   "held_anchor": "auto",
+  "trace_rider": false,
   "materials": {},
   "queries": {}
 }
@@ -277,6 +313,41 @@ pub fn settings() -> Arc<Settings> {
         },
     }
     st.cur.clone()
+}
+
+/// One line of the `trace_rider` trace, in `rider-trace.log` beside the game's saves (emptied at
+/// the first line of a run), stamped with the milliseconds since the first one. Not the game's
+/// log: a line every frame would flood it.
+pub fn trace(line: &str) {
+    use std::io::Write;
+    static FILE: Mutex<Option<(std::fs::File, Instant)>> = Mutex::new(None);
+    let mut guard = FILE.lock().unwrap_or_else(PoisonError::into_inner);
+    if guard.is_none() {
+        let logs = horizon_client_render::logging::game_home().join("logs");
+        let path = if logs.is_dir() { logs } else { horizon_client_render::logging::game_home() }
+            .join("rider-trace.log");
+        match std::fs::File::create(&path) {
+            Ok(f) => {
+                log::info!("bedrock-debug: trace_rider writes {}", path.display());
+                *guard = Some((f, Instant::now()));
+            }
+            Err(_) => return,
+        }
+    }
+    if let Some((f, start)) = guard.as_mut() {
+        let _ = writeln!(f, "t={} {line}", start.elapsed().as_millis());
+    }
+}
+
+static TRACED_MOUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+
+/// The mob the player rides now (for `trace_rider`'s bone lines).
+pub fn set_traced_mount(id: Option<u32>) {
+    TRACED_MOUNT.store(id.unwrap_or(u32::MAX), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_traced_mount(id: u32) -> bool {
+    TRACED_MOUNT.load(std::sync::atomic::Ordering::Relaxed) == id
 }
 
 pub fn debug() -> bool {

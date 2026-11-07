@@ -636,7 +636,23 @@ fn main() {
         host.tick = t;
         frame = Some(inst.update(def, &assets, &mut host, 0.05));
     }
-    let frame = frame.expect("frame");
+    let mut frame = frame.expect("frame");
+    // `FORCE=bone=sx,sy,sz;bone=..` sets those bones' scale after the last tick.
+    if let Ok(f) = std::env::var("FORCE") {
+        for item in f.split(';').filter(|i| !i.is_empty()) {
+            if let Some((b, v)) = item.split_once('=') {
+                let v: Vec<f32> = v.split(',').filter_map(|n| n.parse().ok()).collect();
+                if v.len() == 3 {
+                    frame
+                        .pose
+                        .bones
+                        .entry(b.to_ascii_lowercase())
+                        .or_default()
+                        .scale = [v[0], v[1], v[2]];
+                }
+            }
+        }
+    }
     for n in env("BONES")
         .unwrap_or_default()
         .split(',')
@@ -652,7 +668,17 @@ fn main() {
     }
     let size: usize = env("SIZE").and_then(|v| v.parse().ok()).unwrap_or(256);
     let only = env("ONLY");
-    let views = [(25.0_f32, 15.0_f32), (-50.0, 15.0), (160.0, 15.0)];
+    let mut views = vec![(25.0_f32, 15.0_f32), (-50.0, 15.0), (160.0, 15.0)];
+    // `VIEWS=yaw:pitch;yaw:pitch` replaces the three views.
+    if let Some(v) = env("VIEWS") {
+        views = v
+            .split(';')
+            .filter_map(|p| {
+                let (a, b) = p.split_once(':')?;
+                Some((a.parse().ok()?, b.parse().ok()?))
+            })
+            .collect();
+    }
     let mut sheet = vec![0u8; size * views.len() * size * 4];
     let mut cache: HashMap<String, Option<Tex>> = HashMap::new();
     let mut items: Vec<Item> = Vec::new();
@@ -713,6 +739,18 @@ fn main() {
                             &|n| layer.bone_visible(n),
                             &mut tris,
                         );
+                    }
+                }
+            }
+            if env("PROBE").is_some() && layer.geometry.contains("rduxhj") {
+                for (bone, t) in &tris {
+                    if matches!(bone.as_str(), "hmhadk" | "6q6k" | "6q6da5k_lgh" | "6q6da5k_3gllge" | "head") {
+                        let lo: Vec<f32> = (0..3).map(|a| t.p.iter().map(|p| p[a]).fold(f32::MAX, f32::min)).collect();
+                        let hi: Vec<f32> = (0..3).map(|a| t.p.iter().map(|p| p[a]).fold(f32::MIN, f32::max)).collect();
+                        let flat = (0..3).min_by(|a, b| (hi[*a] - lo[*a]).partial_cmp(&(hi[*b] - lo[*b])).unwrap());
+                        if let Some(a) = flat {
+                            println!("{bone:16} flat axis {a} at {:.5}  x {:.3}..{:.3} y {:.3}..{:.3} z {:.3}..{:.3} (px: y {:.2}..{:.2})", lo[a], lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], (1.5-hi[1])*16.0, (1.5-lo[1])*16.0);
+                        }
                     }
                 }
             }
@@ -823,6 +861,10 @@ fn main() {
         .max(hi[1] - lo[1])
         .max(hi[2] - lo[2])
         .max(0.05);
+    let (centre, extent) = match env("CROP").map(|c| c.split(',').filter_map(|n| n.parse::<f32>().ok()).collect::<Vec<_>>()) {
+        Some(c) if c.len() == 4 => ([c[0], c[1], c[2]], c[3]),
+        _ => (centre, extent),
+    };
     let zoom = size as f32 * 0.8 / (extent * 1.2);
     for (vi, (yaw, pitch)) in views.iter().enumerate() {
         let mut color = vec![[0.55, 0.75, 0.55, 0.0_f32]; size * size];

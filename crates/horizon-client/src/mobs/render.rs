@@ -2200,6 +2200,10 @@ const BEDROCK_BABY_SCALE: f32 = 0.5;
 
 /// Blocks a Bedrock layer is lifted off the one under it, per layer (a thirtieth of a pixel).
 const BEDROCK_LAYER_BIAS: f32 = 0.002;
+/// Blocks a material pass is lifted off the one before it inside one layer: under the hair a
+/// pack leaves between two planes of a face (a hundredth of a pixel), so an eye keeps behind the
+/// lid a pack placed in front of it.
+const BEDROCK_PASS_BIAS: f32 = 0.0002;
 
 /// `HORIZON_BEDROCK_DEBUG=1`: the first draw of each Bedrock-dressed entity is logged, with what
 /// each layer drew and where the model's lowest point is (`feet` is 1.501 when it stands on the
@@ -2294,7 +2298,7 @@ fn render_bedrock(
     };
     let scale = bedrock_scale(&frame, m, alpha);
     // Scaled about the feet: a model's ground is 1.501 blocks below its origin.
-    let base = if (scale - glam::Vec3::ONE).abs().max_element() > 1e-4 {
+    let base = if !m.extra.first_person && (scale - glam::Vec3::ONE).abs().max_element() > 1e-4 {
         let feet = glam::Mat4::from_translation(glam::Vec3::new(0.0, 1.501, 0.0));
         base * feet * glam::Mat4::from_scale(scale) * feet.inverse()
     } else {
@@ -2311,6 +2315,10 @@ fn render_bedrock(
     let mut holder: std::collections::HashMap<String, (glam::Mat4, glam::Mat4)> =
         std::collections::HashMap::new();
     for layer in &frame.layers {
+        // The first-person view model draws only what the hand holds.
+        if m.extra.first_person {
+            break;
+        }
         // A layer the controller turned off (armour not worn, say) or with no bone shown.
         if layer.layer.color[3] <= 0.0
             || !layer
@@ -2343,6 +2351,8 @@ fn render_bedrock(
             &layer.built.names,
             &bedrock.bundle().materials,
         );
+        let layers_before = layers_drawn;
+        let mut drew_here = false;
         for (gi, group) in groups.iter().enumerate() {
             poses.reset(&layer.built.part);
             super::bedrock::apply_pose(&frame.pose, &layer.built.names, &mut poses);
@@ -2499,15 +2509,15 @@ fn render_bedrock(
             // Layers share faces with the ones below (eyes over a head, a coat over a body): each
             // is pushed out along its faces by a hair more than the last so the two never tie in
             // the depth test, which shows as flicker.
-            if layers_drawn > 0 {
-                let push = BEDROCK_LAYER_BIAS * layers_drawn as f32;
+            if layers_before > 0 || gi > 0 {
+                let push = BEDROCK_LAYER_BIAS * layers_before as f32 + BEDROCK_PASS_BIAS * gi as f32;
                 for v in &mut out[start..] {
                     for (p, n) in v.pos.iter_mut().zip(v.normal) {
                         *p += f32::from(n) / 127.0 * push;
                     }
                 }
             }
-            layers_drawn += usize::from(out.len() > start);
+            drew_here |= out.len() > start;
             if layer.layer.flat_lighting {
                 flatten_lighting(&mut out[start..]);
             }
@@ -2550,7 +2560,9 @@ fn render_bedrock(
                     overlay,
                     out,
                 );
-                let push = BEDROCK_LAYER_BIAS * (layers_drawn + 1) as f32;
+                // Over its own faces by a hair, under the planes a pack puts that close in front.
+                let push = BEDROCK_LAYER_BIAS * layers_before as f32
+                    + BEDROCK_PASS_BIAS * (gi + 1) as f32;
                 for v in &mut out[from..] {
                     for (p, n) in v.pos.iter_mut().zip(v.normal) {
                         *p += f32::from(n) / 127.0 * push;
@@ -2586,6 +2598,14 @@ fn render_bedrock(
             // the mob to the vanilla model, not invisible.
             drew |= out.len() > start;
         }
+        layers_drawn += usize::from(drew_here);
+    }
+    if m.extra.first_person {
+        // The hand's frame is `base` itself: the item's bone sits on it, unturned.
+        for bone in ["rightitem", "leftitem"] {
+            holder.insert(bone.to_owned(), (glam::Mat4::IDENTITY, glam::Mat4::IDENTITY));
+        }
+        drew = true;
     }
     if !drew {
         return false;
@@ -2832,6 +2852,94 @@ fn render_bedrock(
         }
     }
     drew
+}
+/// How far a first-person tool leans away from the vertical, in degrees.
+const FIRST_PERSON_LEAN: f32 = 20.0;
+
+/// The pitch, in the hand's frame, that raises what the pack models in the frame of an arm hanging
+/// down (tip along -z) until the tip points up, leaning away from the camera. Nothing else turns:
+/// the pack's own animations decide which face of each item the camera sees.
+fn raise_tip() -> glam::Mat4 {
+    glam::Mat4::from_rotation_x((90.0 - FIRST_PERSON_LEAN).to_radians())
+}
+
+/// Ids of the local player's two first-person copies (one per hand), apart from every mob's.
+const FIRST_PERSON_IDS: [u32; 2] = [u32::MAX - 2, u32::MAX - 3];
+
+/// The first-person view model of a pack's attachable: what the local player `player` holds in a
+/// hand (`item`), drawn as the pack dresses it for `context.is_first_person`, on the game's hand
+/// pose `hand` (camera-relative world space, items upright and facing away from the camera).
+/// `false` when no attachable of the pack dresses the item, which leaves it to the game's own
+/// item model.
+#[allow(clippy::too_many_arguments)]
+pub fn first_person_item(
+    player: &Mob,
+    item: &str,
+    off_hand: bool,
+    alpha: f32,
+    hand: glam::Mat4,
+    atlas: Atlas,
+    light: u32,
+    data: &MobData,
+    out: &mut Vec<Vertex>,
+) -> bool {
+    let settings = super::bedrock_debug::settings();
+    if settings.first_person_off {
+        return false;
+    }
+    let mut copy = player.clone();
+    copy.id = FIRST_PERSON_IDS[usize::from(off_hand)];
+    copy.extra.first_person = true;
+    copy.extra.main_hand = None;
+    copy.extra.off_hand = None;
+    copy.extra.head = None;
+    copy.extra.chest = None;
+    copy.extra.legs = None;
+    copy.extra.feet = None;
+    copy.extra.body = None;
+    let stack: std::sync::Arc<str> = item.into();
+    if off_hand {
+        copy.extra.off_hand = Some(stack);
+    } else {
+        copy.extra.main_hand = Some(stack);
+    }
+    // A bedrock model is in the game's frame, y down: turned the way a mob's is, about the hand.
+    let flip = glam::Mat4::from_scale(glam::Vec3::new(-1.0, -1.0, 1.0));
+    let start = out.len();
+    // The pack models what is held in the frame of an arm hanging down; the first-person arm is
+    // raised, which turns the tip up and leaves the pack's own roll of the item as it is.
+    render_bedrock(
+        &copy,
+        alpha,
+        hand * settings.first_person_matrix(raise_tip()) * flip,
+        atlas,
+        light,
+        data,
+        out,
+    );
+    let drawn = out.len() - start;
+    if bedrock_debug() {
+        let inverse = hand.inverse();
+        let (mut lo, mut hi) = (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
+        for v in &out[start..] {
+            let p = inverse.transform_point3(glam::Vec3::from_array(v.pos));
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+        let size = ((hi - lo).max_element() * 10.0) as i32;
+        log_bedrock_once(format!("first-person/{item}/{off_hand}/{size}"), || {
+            if drawn == 0 {
+                format!("first person {item}: no attachable of the pack draws it")
+            } else {
+                format!(
+                    "first person {item} ({}): {drawn} vertices, from the hand: x {:.2}..{:.2} y {:.2}..{:.2} z {:.2}..{:.2}",
+                    if off_hand { "off hand" } else { "main hand" },
+                    lo.x, hi.x, lo.y, hi.y, lo.z, hi.z
+                )
+            }
+        });
+    }
+    drawn > 0
 }
 #[allow(clippy::too_many_arguments)]
 fn render_visible(

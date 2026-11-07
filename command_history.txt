@@ -1,26 +1,4 @@
 /summon creeper ~ ~ ~ {powered:1}
-/time set 0
-/gamemode spectator
-/gamemode survival
-/gamemode creative
-/summon creeper ~ ~ ~ {powered:1}
-/time set 0
-/summon creeper ~ ~ ~ {powered:1}
-/summon minecraft:skeleton
-/summon creeper ~ ~ ~ {powered:1}
-/time set 0
-/time set minecraft:night
-/summon creeper ~ ~ ~ {powered:1}
-/time set 0
-/summon creeper ~ ~ ~ {powered:1}
-/time set 0
-/weather clear
-/summon creeper ~ ~ ~ {powered:1}
-/gamemode survival
-/gamemode creative
-/gamemode survival
-/gamemode creative
-/summon creeper ~ ~ ~ {powered:1}
 /enchant Player76931 minecraft:channeling
 /weather thunder
 /enchant Player76931 minecraft:channeling
@@ -42,3 +20,31 @@
 /time set 0
 /gamemode survival
 /gamemode creative
+/gamemode survival
+/gamemode creative
+/time set 0
+/tp Player76931 ~ 120 ~
+/tp Player76931 ~ 220 ~
+/time set 0
+/gamemode survival
+/gamemode creative
+/gamemode survival
+/summon creeper ~ ~ ~ {powered:1}
+/gamemode creative
+/summon creeper ~ ~ ~ {powered:1}
+/time set 0
+/gamemode survival
+/gamemode creative
+/weather c'
+/weather clear
+/gamemode survival
+/gamemode creative
+/time set 0
+/weather clear
+/time set 0
+/weather clear
+/time set 0
+/tp Player76931 ~ 220 ~
+/locate biome minecraft:plains
+/tp @s 3928 117 1581
+/tp Player76931 ~ 220 ~

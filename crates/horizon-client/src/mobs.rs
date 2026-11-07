@@ -957,6 +957,9 @@ pub struct Extra {
     /// which `LivingEntity.setSprinting`'s speed modifier makes faster.
     pub sprinting: bool,
     pub passenger: bool,
+    /// The player's first-person view model: a copy of the local player the packs' attachables
+    /// answer `context.is_first_person` for (`mobs::render::first_person_item`).
+    pub first_person: bool,
     /// AgeableMob.age: negative while a baby (a tadpole counts up to 24000).
     pub age: i32,
     /// `AgeLocked` (tadpoles fed a slime ball... and ageable mobs).

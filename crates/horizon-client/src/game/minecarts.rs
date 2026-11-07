@@ -239,7 +239,8 @@ fn push_along(push: Vec3, movement: Vec3) -> Vec3 {
     }
 }
 /// AbstractMinecart passenger attachment Y (EntityAttachments).
-const PASSENGER_Y: f64 = 0.1875;
+/// Raised 0.47 so the rider's shoulders clear the rim, as in Bedrock.
+const PASSENGER_Y: f64 = 0.1875 + 0.47;
 /// The minecart's passenger attachment minus Player.DEFAULT_VEHICLE_ATTACHMENT.
 pub(super) const SEAT: f64 = PASSENGER_Y - 0.6;
 /// The placeholder container key under which an open cart's items live.
@@ -1903,7 +1904,10 @@ impl Game<'_> {
         let mut c = self.carts[i].clone();
         let alive = self.tick_cart(&mut c, intent);
         if let Some(p) = self.player.as_mut() {
-            self.previous_position = p.position;
+            // The seat the cart had a tick ago, as the cart itself is drawn from: the player's own
+            // position here has already fallen a tick of gravity, and drawn from there the rider
+            // jumped up and down.
+            self.previous_position = Vec3::new(c.previous.x, c.previous.y + SEAT, c.previous.z);
             p.position = Vec3::new(c.position.x, c.position.y + SEAT, c.position.z);
             p.velocity = Vec3::ZERO;
             p.fall_distance = 0.0;

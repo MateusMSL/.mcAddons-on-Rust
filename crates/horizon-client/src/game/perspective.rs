@@ -413,6 +413,7 @@ impl Game<'_> {
         let pose = p.pose;
         let crouching = pose == Pose::Crouching;
         let position = p.position;
+        let on_ground = p.ground.on_ground;
         let (fall_flying, fly_ticks, velocity) = (p.fall_flying, p.fall_fly_ticks, p.velocity);
         let spinning = p.auto_spin_attack_ticks > 0;
         let using = self.using.map(|(_, ticks)| ticks as i32 + 1).unwrap_or(0);
@@ -453,9 +454,12 @@ impl Game<'_> {
         // another player's does (`villager::sleep_pose`).
         let bed = self.sleeping.map_or(0, |head| self.bed_facing(head));
         let spectator = self.spectator();
+        let mount_type = self.riding.map(|id| self.vehicle_kind(id));
+        let mount_body = self.mount_index().map(|i| self.mobs[i].body_yaw);
         let Some(m) = self.player_model.as_mut() else {
             return;
         };
+        horizon_client::mobs::riders::set_player_mount(mount_type.map(|k| (m.id, k)));
         m.extra.ints[1] = bed;
         m.extra.model_scale = scale;
         // The crouch flag is still last tick's here.
@@ -493,6 +497,15 @@ impl Game<'_> {
         if diff.abs() > 50.0 {
             m.body_yaw += diff - diff.signum() * 50.0;
         }
+        if let Some(mount) = mount_body {
+            // `LivingEntityRenderer`: a rider on a living mount turns with the mount's body, as
+            // far as 85 degrees from its head; beyond, the body trails the head.
+            let net = wrap(yaw - mount).clamp(-85.0, 85.0);
+            m.body_yaw = yaw - net;
+            if net * net > 2500.0 {
+                m.body_yaw += net * 0.2;
+            }
+        }
         // WalkAnimationState.update(min(distance * 4, 1), 0.4).
         m.previous_limb_speed = m.limb_speed;
         m.limb_speed += ((walked * 4.0).min(1.0) - m.limb_speed) * 0.4;
@@ -517,6 +530,9 @@ impl Game<'_> {
         m.extra.passenger = riding;
         m.extra.previous_velocity = m.velocity;
         m.velocity = velocity;
+        // `is_on_ground` / `vertical_speed` of the packs: a body on the ground (gravity still
+        // pulling) is no fall; a rider is carried.
+        m.on_ground = on_ground && !riding;
         m.extra.fall_flying = fall_flying;
         m.extra.fall_fly_ticks = fly_ticks;
         m.extra.auto_spin_attack = spinning;

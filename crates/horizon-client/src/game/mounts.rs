@@ -534,11 +534,71 @@ impl Game<'_> {
         let first = self.posed_rider != self.riding;
         self.posed_rider = self.riding;
         if let Some(p) = self.player.as_mut() {
-            self.previous_position = if first { at } else { p.position };
+            self.previous_position = if first { at } else { self.rider_seat };
+            self.rider_seat = at;
             p.position = at;
             p.velocity = Vec3::ZERO;
             p.fall_distance = 0.0;
         }
+        if horizon_client::mobs::bedrock_debug::settings().trace_rider {
+            let m = &self.mobs[i];
+            horizon_client::mobs::bedrock_debug::trace(&format!(
+                "rider-trace-tick mount_prev={:.5} mount_pos={:.5} seat={:.5} rider_prev={:.5} first={} on_ground={} vy={:.5} stand={:.4}",
+                m.previous.y,
+                m.position.y,
+                at.y,
+                self.previous_position.y,
+                first,
+                m.on_ground,
+                m.velocity.y,
+                equine::rear_offset(m)[1],
+            ));
+        }
+    }
+    /// `trace_rider` of `bedrock-debug.json`: one line per drawn frame with the mount's and the
+    /// rider model's old, new and drawn heights and yaws.
+    pub(super) fn trace_rider_frame(&self, camera: glam::DVec3, alpha: f64) {
+        if !horizon_client::mobs::bedrock_debug::settings().trace_rider {
+            return;
+        }
+        horizon_client::mobs::bedrock_debug::set_traced_mount(self.mount_index().map(|i| self.mobs[i].id));
+        let (Some(i), Some(r)) = (self.mount_index(), self.player_model.as_ref()) else {
+            return;
+        };
+        let m = &self.mobs[i];
+        let a = alpha;
+        let lerp = |p: f64, n: f64| p + (n - p) * a;
+        let wrap = |d: f32| (d + 180.0).rem_euclid(360.0) - 180.0;
+        let blend = |p: f32, n: f32| p + wrap(n - p) * a as f32;
+        let (my, ry) = (lerp(m.previous.y, m.position.y), lerp(r.previous.y, r.position.y));
+        let (mb, rb) = (
+            blend(m.previous_body_yaw, m.body_yaw),
+            blend(r.previous_body_yaw, r.body_yaw),
+        );
+        let (mx, rx) = (
+            lerp(m.previous.x, m.position.x) - lerp(r.previous.x, r.position.x),
+            lerp(m.previous.z, m.position.z) - lerp(r.previous.z, r.position.z),
+        );
+        horizon_client::mobs::bedrock_debug::trace(&format!(
+            "rider-trace-frame a={:.3} mount_y={:.5} rider_y={:.5} dy={:.5} dxz=({:.4},{:.4}) mount_prev={:.5} mount_pos={:.5} rider_prev={:.5} rider_pos={:.5} cam_y={:.5} mount_yaw={:.2} mount_body={:.2} rider_body={:.2} rider_head={:.2} body_diff={:.2} stand={:.4}",
+            a,
+            my,
+            ry,
+            ry - my,
+            mx,
+            rx,
+            m.previous.y,
+            m.position.y,
+            r.previous.y,
+            r.position.y,
+            camera.y,
+            blend(m.previous_yaw, m.yaw),
+            mb,
+            rb,
+            blend(r.previous_head_yaw, r.head_yaw),
+            wrap(rb - mb),
+            equine::rear_offset(m)[1],
+        ));
     }
     /// `removePassenger` + `getDismountLocationForPassenger`: beside the mount.
     pub(super) fn dismount_mount(&mut self) {

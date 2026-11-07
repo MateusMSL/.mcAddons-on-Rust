@@ -507,7 +507,7 @@ fn common_query(name: &str, args: &[Value]) -> Value {
 
 /// The engine's build, logged once with `HORIZON_BEDROCK_DEBUG`: tells whether the game runs the
 /// files the last overlay carried.
-pub const ENGINE_BUILD: &str = "v50-defs-rabbit";
+pub const ENGINE_BUILD: &str = "v75-first-person-pack-roll";
 
 /// `HORIZON_BEDROCK_DUMP=skeleton,creeper`: the kinds (by part of the id) whose state is logged
 /// once a second while within twelve blocks of the camera.
@@ -517,6 +517,43 @@ fn dump_wanted(kind: &str) -> bool {
 
 /// One line of what a mob's pack is doing: what the game answers, what runs, the bones moved
 /// and what is drawn.
+/// `trace_rider`: the bones of a mount and of its rider, every frame.
+fn trace_pose(m: &Mob, alpha: f32, time: f32, dt: f32, frame: &horizon_bedrock::entity::Frame) {
+    use std::fmt::Write;
+    let settings = super::bedrock_debug::settings();
+    if !settings.trace_rider {
+        return;
+    }
+    let wanted: Vec<String> = if settings.dump_bones.is_empty() {
+        ["root", "waist", "body", "head"].map(String::from).to_vec()
+    } else {
+        settings.dump_bones.iter().map(|n| n.to_ascii_lowercase()).collect()
+    };
+    let mut bones: Vec<_> = frame
+        .pose
+        .bones
+        .iter()
+        .filter(|(name, _)| {
+            let name = name.to_ascii_lowercase();
+            wanted.iter().any(|w| name.contains(w.as_str()))
+        })
+        .collect();
+    bones.sort_by(|a, b| a.0.cmp(b.0));
+    let mut b = String::new();
+    for (name, p) in bones.iter().take(16) {
+        let _ = write!(
+            b,
+            " {name}(rot={:?} pos={:?})",
+            p.rotation.map(|v| (v * 100.0).round() / 100.0),
+            p.position.map(|v| (v * 100.0).round() / 100.0),
+        );
+    }
+    super::bedrock_debug::trace(&format!(
+        "rider-trace-pose {}#{} age={} a={alpha:.3} time={time:.3} dt={dt:.4}{b}",
+        m.kind.id, m.id, m.age
+    ));
+}
+
 fn dump_line(m: &Mob, host: &mut MobHost, frame: &horizon_bedrock::entity::Frame, running: &str) -> String {
     use std::fmt::Write;
     let mut q = String::new();
@@ -765,6 +802,7 @@ impl Host for MobHost<'_> {
             ("rail_rotation", Value::Num(0.0)),
             ("liedownamount", Value::Num(0.0)),
             ("is_enchanted", Value::Num(0.0)),
+            ("is_first_person", Value::bool(m.extra.first_person)),
         ]
     }
 
@@ -801,7 +839,16 @@ impl Host for MobHost<'_> {
             "is_on_fire" => Value::bool(m.fire_ticks > 0),
             "is_riding" => Value::bool(m.extra.passenger),
             // A mob the server runs has no target here: one drawing a bow or crossbow has one.
-            "has_target" => Value::bool(m.ai.target.is_some() || m.extra.using_item > 0),
+            "has_target" => Value::bool(
+                m.ai.target.is_some()
+                    || m.extra.using_item > 0
+                    || (m.species() == super::Species::Blaze && super::nether::blaze_attacking(m)),
+            ),
+            // A rider's limbs do not swing (`LivingEntityRenderer`: a sitting passenger's walk
+            // animation is zero), whatever the mount's speed carries it at.
+            "modified_move_speed" if m.extra.passenger => Value::Num(0.0),
+            "ground_speed" if m.extra.passenger => Value::Num(0.0),
+            "modified_distance_moved" | "distance_moved" if m.extra.passenger => Value::Num(0.0),
             "modified_move_speed" => Value::Num(lerp(m.previous_limb_speed, m.limb_speed).min(1.0)),
             // Blocks a second. A player's own velocity is not the game's to track (the client
             // drives it), so what it moved in the last tick counts too.
@@ -823,6 +870,7 @@ impl Host for MobHost<'_> {
                 };
                 Value::Num(speed as f32 * 20.0)
             }
+            "vertical_speed" if m.extra.passenger => Value::Num(0.0),
             "vertical_speed" => {
                 let (v, d) = (m.velocity.y, m.position.y - m.previous.y);
                 // Gravity keeps pulling a mob on the ground (-0.0784 a tick, -1.57 a second) with
@@ -933,18 +981,31 @@ impl Host for MobHost<'_> {
             "time_of_day" => Value::Num(0.5),
             "is_sheared" => Value::bool(m.extra.sheared),
             "is_powered" | "is_charged" => Value::bool(if m.species() == super::Species::Blaze {
-                m.extra.flag
+                super::nether::blaze_charging(m)
             } else {
                 m.extra.charged
             }),
-            "is_sitting" => Value::bool(m.extra.sitting),
-            "sit_amount" => Value::Num(if m.extra.sitting { 1.0 } else { 0.0 }),
+            // A camel sits by its own pose state (`Camel.isCamelSitting`), not a pet's `sitting`.
+            "is_sitting" => Value::bool(
+                m.extra.sitting || (super::camel::is_camel(m.species()) && super::camel::sitting(m)),
+            ),
+            "sit_amount" => Value::Num(
+                if m.extra.sitting
+                    || (super::camel::is_camel(m.species()) && super::camel::sitting(m))
+                {
+                    1.0
+                } else {
+                    0.0
+                },
+            ),
             "is_tamed" => Value::bool(m.extra.tame),
             "is_saddled" => Value::bool(m.extra.saddled || m.extra.saddle_stack.is_some()),
             "is_chested" => Value::bool(m.extra.chested),
             "is_sneaking" | "is_crouching" => Value::bool(m.extra.crouching),
             "is_sprinting" => Value::bool(m.extra.sprinting),
-            "is_angry" => Value::bool(m.extra.anger > 0),
+            "is_angry" => Value::bool(
+                m.extra.anger > 0 || (m.species() == super::Species::Enderman && m.extra.flag),
+            ),
             "is_wall_climbing" => Value::bool(m.climbing),
             "is_carrying_block" => Value::bool(m.extra.carried.is_some()),
             "has_rider" => Value::bool(m.rider.is_some()),
@@ -1095,12 +1156,19 @@ impl Host for MobHost<'_> {
             | "is_shaking_wetness"
             | "is_eating_mob"
             | "can_damage_nearby_mobs" => Value::Num(0.0),
-            "is_sleeping" | "is_avoiding_mobs" | "is_shaking" | "is_riding_any_entity_of_type" => {
+            "is_riding_any_entity_of_type" => Value::bool(
+                m.extra.passenger
+                    && super::riders::mount_kind(m.id).is_some_and(|k| {
+                        args.iter()
+                            .any(|a| matches!(a, Value::Str(s) if s.eq_ignore_ascii_case(&k)))
+                    }),
+            ),
+            "is_sleeping" | "is_avoiding_mobs" | "is_shaking" => {
                 Value::Num(0.0)
             }
             "time_stamp" => Value::Num(m.age as f32),
             "facing_target_to_range_attack" => Value::bool(if m.species() == super::Species::Blaze {
-                m.extra.flag || m.ai.target.is_some()
+                super::nether::blaze_attacking(m)
             } else {
                 m.extra.using_item > 0
             }),
@@ -1454,7 +1522,7 @@ impl Host for AttachHost<'_> {
     fn context(&mut self, name: &str) -> Value {
         match name {
             "item_slot" => Value::Str(self.slot.into()),
-            "is_first_person" => Value::Num(0.0),
+            "is_first_person" => Value::bool(self.inner.m.extra.first_person),
             "owning_entity" => Value::Entity(u64::from(self.inner.m.id)),
             _ => Value::Null,
         }
@@ -1761,6 +1829,15 @@ impl BedrockMobs {
         };
         let frame = st.instance.update(def, &assets, &mut host, dt);
         st.time = time;
+        if !gui && super::camel::is_camel(m.species()) {
+            let moved = |n: &str| frame.pose.get(n).map_or(0.0, |b| b.position[1]);
+            super::camel::set_model_drop(m.id, (moved("root") + moved("body")) / 16.0);
+        }
+        if !gui
+            && (m.extra.passenger || m.rider.is_some() || super::bedrock_debug::is_traced_mount(m.id))
+        {
+            trace_pose(m, alpha, time, dt, &frame);
+        }
         if dump_wanted(&m.kind.id)
             && time - st.dumped >= 20.0
             && from_camera.iter().map(|v| v * v).sum::<f32>() < 144.0
